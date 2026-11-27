@@ -2,6 +2,11 @@
 
 #include <QAction>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QPointer>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QMenu>
 
 #include "backend/Backend.h"
@@ -200,8 +205,154 @@ private slots:
                      id == QLatin1String("direct-id"));
             QVERIFY(actionNamed(header, QStringLiteral("toggleConversationFavoriteAction")));
             QVERIFY(actionNamed(sidebar, QStringLiteral("toggleConversationFavoriteAction")));
-            QVERIFY(!actionNamed(header, QStringLiteral("editChannelTopicAction")));
+            auto* topic = actionNamed(header, QStringLiteral("editChannelTopicAction"));
+            QVERIFY(!topic || !topic->isVisible());
+            auto* convert = actionNamed(header, QStringLiteral("convertGroupMessageAction"));
+            QCOMPARE(convert && convert->isVisible(), id == QLatin1String("group-id"));
         }
+    }
+
+    void conversionPreservesChannelIdentityAndUpdatesPersistentMenu()
+    {
+        Backend backend;
+        QVERIFY(addTeamChannel(backend, QStringLiteral("normal")));
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "me"}, {"username", "me"}}, true);
+        BackendChannel* group = storage.addGroupChannel(QJsonObject {
+            {"id", "group-id"}, {"type", "G"}, {"name", "group"},
+            {"display_name", "me, peer"}
+        });
+        QVERIFY(group);
+        QPointer<BackendChannel> guard(group);
+        BackendPost* post = group->addPost(QJsonObject {
+            {"id", "post-id"}, {"user_id", "me"}, {"channel_id", "group-id"},
+            {"message", "Preserve history"}, {"create_at", 1000}
+        });
+        QVERIFY(post);
+        QWidget host;
+        QMenu menu(&host);
+        ConversationActionsMenu::populate(menu, backend, group->id, QStringLiteral("team"), &host);
+        auto* convert = actionNamed(menu, QStringLiteral("convertGroupMessageAction"));
+        auto* topic = actionNamed(menu, QStringLiteral("editChannelTopicAction"));
+        QVERIFY(convert && convert->isVisible());
+        QVERIFY(topic && !topic->isVisible());
+
+        const QJsonObject converted {{"id", "group-id"}, {"team_id", "team"},
+            {"type", "P"}, {"name", "private-project"}, {"display_name", "Private project"}};
+        QJsonObject invalid = converted;
+        invalid.insert(QStringLiteral("team_id"), QStringLiteral("unknown-team"));
+        QVERIFY(!storage.applyConvertedGroupChannel(invalid));
+        QCOMPARE(group->type, int(BackendChannel::groupChannel));
+        QSignalSpy updates(group, &BackendChannel::onUpdated);
+        QCOMPARE(backend.applyConvertedGroupChannel(converted), group);
+        QVERIFY(guard);
+        QCOMPARE(storage.getChannelById(QStringLiteral("group-id")), group);
+        QCOMPARE(group->postIdToPost.value(QStringLiteral("post-id")), post);
+        QCOMPARE(group->type, int(BackendChannel::privateChannel));
+        QCOMPARE(group->team, storage.getTeamById(QStringLiteral("team")));
+        QVERIFY(storage.groupChannels.channels.empty());
+        QCOMPARE(group->team->channels.back().get(), group);
+        QCOMPARE(updates.size(), 1);
+        // A second delivery (REST after WebSocket) must not duplicate ownership.
+        QCOMPARE(backend.applyConvertedGroupChannel(converted), group);
+        QCOMPARE(updates.size(), 1);
+        QCOMPARE(int(group->team->channels.size()), 2);
+        emit menu.aboutToShow();
+        QVERIFY(!convert->isVisible());
+        QVERIFY(topic->isVisible());
+    }
+
+    void conversionUsesCommonTeamsAndPreservesStateOnRejectedRequest()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        QByteArray lastRequest;
+        QJsonObject lastPayload;
+        bool rejectConversion = true;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (server.hasPendingConnections()) {
+                auto* socket = server.nextPendingConnection();
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                    if (socket->property("answered").toBool()) return;
+                    const QByteArray data = socket->property("input").toByteArray() + socket->readAll();
+                    socket->setProperty("input", data);
+                    const int end = data.indexOf("\r\n\r\n");
+                    if (end < 0) return;
+                    int length = 0;
+                    for (const auto& line : data.left(end).split('\n')) {
+                        if (line.toLower().startsWith("content-length:"))
+                            length = line.mid(line.indexOf(':') + 1).trimmed().toInt();
+                    }
+                    if (data.size() < end + 4 + length) return;
+                    socket->setProperty("answered", true);
+                    lastRequest = data.left(data.indexOf('\r'));
+                    lastPayload = QJsonDocument::fromJson(data.mid(end + 4, length)).object();
+                    const bool common = lastRequest.startsWith("GET ")
+                        && lastRequest.contains("/channels/group-id/common_teams");
+                    const bool conversion = lastRequest.startsWith("POST ")
+                        && lastRequest.contains("/channels/group-id/convert_to_channel");
+                    const bool success = common || (conversion && !rejectConversion);
+                    QJsonDocument doc;
+                    if (common) {
+                        doc = QJsonDocument(QJsonArray {QJsonObject {{"id", "team"}, {"name", "team"}}});
+                    } else if (success) {
+                        doc = QJsonDocument(QJsonObject {{"id", "group-id"}, {"team_id", "team"},
+                            {"type", "P"}, {"name", "private-project"}, {"display_name", "Private project"}});
+                    } else {
+                        doc = QJsonDocument(QJsonObject {{"message", "Conversion denied"}});
+                    }
+                    const QByteArray body = doc.toJson(QJsonDocument::Compact);
+                    socket->write(QByteArray(success ? "HTTP/1.1 200 OK\r\n" : "HTTP/1.1 403 Forbidden\r\n")
+                        + "Content-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                        + QByteArray::number(body.size()) + "\r\n\r\n" + body);
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+        Backend backend;
+        backend.networkSession().setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        QVERIFY(addTeamChannel(backend, QStringLiteral("normal")));
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "me"}, {"username", "me"}}, true);
+        BackendChannel* group = storage.addGroupChannel(QJsonObject {
+            {"id", "group-id"}, {"type", "G"}, {"name", "group"}, {"display_name", "me, peer"}
+        });
+        QVERIFY(group);
+        bool completed = false;
+        QString error;
+        QJsonArray teams;
+        backend.retrieveGroupConversionTeams(group->id, [&](QJsonArray result, const QString& message) {
+            teams = result; error = message; completed = true;
+        });
+        QTRY_VERIFY(completed);
+        QVERIFY(error.isEmpty());
+        QCOMPARE(teams.size(), 1);
+        QCOMPARE(teams.first().toObject().value("id").toString(), QStringLiteral("team"));
+        bool accepted = false;
+        const auto submit = [&] {
+            completed = false;
+            backend.convertGroupMessageToChannel(group->id, QStringLiteral("team"),
+                QStringLiteral("private-project"), QStringLiteral("Private project"),
+                [&](bool success, const QString& message) {
+                    accepted = success; error = message; completed = true;
+                });
+        };
+        submit();
+        QTRY_VERIFY(completed);
+        QVERIFY(!accepted);
+        QCOMPARE(error, QStringLiteral("Conversion denied"));
+        QCOMPARE(group->type, int(BackendChannel::groupChannel));
+        QCOMPARE(lastPayload.value("channel_id").toString(), QStringLiteral("group-id"));
+        QCOMPARE(lastPayload.value("team_id").toString(), QStringLiteral("team"));
+        QCOMPARE(lastPayload.value("name").toString(), QStringLiteral("private-project"));
+        QCOMPARE(lastPayload.value("display_name").toString(), QStringLiteral("Private project"));
+        rejectConversion = false;
+        submit();
+        QTRY_VERIFY(completed);
+        QVERIFY(accepted);
+        QCOMPARE(storage.getChannelById(QStringLiteral("group-id")), group);
+        QCOMPARE(group->type, int(BackendChannel::privateChannel));
     }
 
     void openInNewTabRequestsTheClickedConversation()

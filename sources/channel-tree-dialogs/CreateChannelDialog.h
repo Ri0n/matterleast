@@ -20,12 +20,12 @@ public:
     QString displayName() const;
     QString purpose() const;
     bool isPrivateChannel() const;
+    static QString generatedChannelName(const QString& displayName);
 
 public slots:
     void accept() override;
 
 private:
-    static QString generatedChannelName(const QString& displayName);
     void updateGeneratedName();
 
     QLineEdit* displayNameEdit = nullptr;

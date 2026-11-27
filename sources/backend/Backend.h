@@ -252,6 +252,12 @@ public:
 	//create/open a group direct channel (/channels/group)
 	void createGroupChannel(const QStringList& userIds,
 	                        std::function<void(BackendChannel&)> callback = {});
+    void retrieveGroupConversionTeams(const QString& channelId,
+        std::function<void(QJsonArray, const QString&)> callback);
+    void convertGroupMessageToChannel(const QString& channelId, const QString& teamId,
+        const QString& name, const QString& displayName, StatusUpdateResult callback);
+    // Shared reconciliation for local REST results and remote channel_updated.
+    BackendChannel* applyConvertedGroupChannel(const QJsonObject& channelData);
 
     // Resolve effective system/team/channel role permissions from the server.
     void canAddChannelMembers(BackendChannel& channel, std::function<void(bool)> callback);

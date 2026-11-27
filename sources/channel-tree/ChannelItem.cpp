@@ -79,6 +79,8 @@ void ChannelItem::setLabel (const QString& label)
     // and alternate views never have to recover row semantics from their parent
     // widget or from the icon/presence fields.
     BackendChannel* channel = backendChannel();
+    const bool typeChanged = channel && data(0, SidebarItem::ChannelTypeRole).isValid()
+        && data(0, SidebarItem::ChannelTypeRole).toInt() != channel->type;
     if (channel) {
         setData(0, SidebarItem::ChannelTypeRole, channel->type);
     }
@@ -86,7 +88,7 @@ void ChannelItem::setLabel (const QString& label)
     // Direct conversations get a real user avatar as soon as the profile is
     // resolved. Give every other row a stable semantic icon immediately so
     // public/private channels and group DMs do not look visually unfinished.
-    if (QTreeWidgetItem::icon(0).isNull() && channel
+    if ((typeChanged || QTreeWidgetItem::icon(0).isNull()) && channel
         && channel->type != BackendChannel::directChannel) {
         setIcon(ChannelIcons::conversation(channel->type));
     }

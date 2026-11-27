@@ -23,6 +23,8 @@
  */
 
 #include "Storage.h"
+#include <algorithm>
+#include <utility>
 #include "backend/NetworkSessionContext.h"
 #include "log.h"
 
@@ -183,6 +185,45 @@ BackendChannel* Storage::addOwnChannel(const QJsonObject& json)
 
     BackendTeam* team = getTeamById(json.value(QStringLiteral("team_id")).toString());
     return team ? addTeamChannel(*team, json) : nullptr;
+}
+
+BackendChannel* Storage::applyConvertedGroupChannel(const QJsonObject& json)
+{
+    const QString id = json.value(QStringLiteral("id")).toString();
+    const QString teamId = json.value(QStringLiteral("team_id")).toString();
+    BackendChannel* channel = getChannelById(id);
+    BackendTeam* team = getTeamById(teamId);
+    if (id.isEmpty() || teamId.isEmpty() || !channel || !team
+        || BackendChannel::getChannelType(json) != BackendChannel::privateChannel)
+        return nullptr;
+    if (channel->type == BackendChannel::privateChannel && channel->team == team)
+        return channel; // HTTP, WebSocket and catalog snapshots may overlap.
+    if (channel->type != BackendChannel::groupChannel
+        || json.value(QStringLiteral("name")).toString().isEmpty()
+        || json.value(QStringLiteral("display_name")).toString().isEmpty())
+        return nullptr;
+
+    auto& groups = groupChannels.channels;
+    const auto owner = std::find_if(groups.begin(), groups.end(),
+        [channel](const auto& entry) { return entry.get() == channel; });
+    if (owner == groups.end())
+        return nullptr;
+    // The same channel ID keeps its post cache, members, pending requests and
+    // live views. Transfer ownership rather than constructing another object.
+    team->channels.emplace_back(std::move(*owner));
+    groups.erase(owner);
+    channel->team = team;
+    channel->type = BackendChannel::privateChannel;
+    channel->name = json.value(QStringLiteral("name")).toString();
+    channel->display_name = json.value(QStringLiteral("display_name")).toString();
+    channel->header = json.value(QStringLiteral("header")).toString();
+    channel->purpose = json.value(QStringLiteral("purpose")).toString();
+    channel->update_at = std::max(channel->update_at,
+        static_cast<uint64_t>(json.value(QStringLiteral("update_at")).toVariant().toULongLong()));
+    if (json.contains(QStringLiteral("scheme_id")))
+        channel->scheme_id = json.value(QStringLiteral("scheme_id")).toVariant();
+    channel->referenceCount = 1;
+    return channel;
 }
 
 BackendChannel* Storage::addChannel (BackendTeam& team, const QJsonObject& json)

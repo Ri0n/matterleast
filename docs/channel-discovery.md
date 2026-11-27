@@ -90,6 +90,22 @@ and retain the failed/unsubmitted chips; retry must not resend successful additi
 stops further submissions without undoing an already submitted HTTP operation. Disconnect child
 teardown callbacks before destroying the member-list dialog's derived state.
 
+## Group message conversion
+
+The shared conversation action menu offers **Convert to private channel…** for
+GMs. The dialog obtains eligible destination teams from `GET /channels/{id}/common_teams`
+and submits the chosen team, display name and URL name through
+`POST /channels/{id}/convert_to_channel` (Mattermost 9.1+). The server enforces
+permissions and returns the converted channel; errors leave the dialog editable.
+
+Conversion changes the type and team but not the channel ID. Storage transfers
+ownership of the existing `BackendChannel` from the GM collection to the team
+collection. Its posts and live references are preserved. REST, `channel_updated`
+and the account catalog reconcile the same transition idempotently; server-owned
+sidebar categories and memberships are refreshed. An older cached category must
+not display the converted channel as a DM or under the wrong team. Persistent
+header menus update their action visibility on opening.
+
 ## Ownership and persistence
 
 Creation helpers in `Backend` materialize successful server responses into `Storage` before invoking UI callbacks. Navigation then goes through `AppNavigationService`, so opening a newly created DM/GM/team channel follows the same sidebar admission and semantic-navigation path as every other open operation.
