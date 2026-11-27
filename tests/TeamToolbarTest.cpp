@@ -14,6 +14,8 @@
 #include "channel-tree/team-item/GroupTeamItem.h"
 #include "options/MLOptions.h"
 #include "ui/TeamSelectorLabel.h"
+#include "ui/SidebarTabWidget.h"
+#include <QAction>
 
 using namespace Mattermost;
 
@@ -28,6 +30,32 @@ private slots:
         // The Windows native settings store requires an organization name.
         QCoreApplication::setOrganizationName(QStringLiteral("MatterLeast-Tests"));
         QCoreApplication::setApplicationName(QStringLiteral("TeamToolbarTest"));
+    }
+
+    void narrowingTabsKeepsServersReachable()
+    {
+        SidebarTabWidget tabs;
+        tabs.setDocumentMode(true);
+        QPixmap icon(16, 16);
+        icon.fill(Qt::blue);
+        tabs.addTab(new QWidget, QIcon(icon), QString());
+        tabs.addTab(new QWidget, QStringLiteral("Channels"));
+        tabs.addTab(new QWidget, QStringLiteral("Unread"));
+        tabs.addTab(new QWidget, QStringLiteral("Attention"));
+        tabs.resize(600, 200);
+        tabs.show();
+        auto* bar = tabs.tabBar();
+        QTRY_VERIFY(bar->isVisible());
+        const int wide = bar->tabRect(1).width();
+        tabs.resize(tabs.minimumSizeHint().width(), 200);
+        QTRY_VERIFY(bar->tabRect(1).width() < wide);
+        for (int i = 0; i < bar->count(); ++i) {
+            QVERIFY(bar->rect().contains(bar->tabRect(i)));
+        }
+        tabs.setCurrentIndex(3);
+        QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, bar->tabRect(0).center());
+        QCOMPARE(tabs.currentIndex(), 0);
+        QCOMPARE(bar->tabText(1), QStringLiteral("Channels"));
     }
 
     void teamButtonsSwitchAndPersistThroughExistingController()
@@ -110,12 +138,16 @@ private slots:
         }
         QVERIFY(beta);
         QVERIFY(!beta->isChecked());
-        QVERIFY(toolbar->findChild<QToolButton*>(
-            QStringLiteral("teamToolbarAdd")));
-        auto* browse = toolbar->findChild<QToolButton*>(
-            QStringLiteral("teamToolbarBrowse"));
-        QVERIFY(browse);
-        QVERIFY(!browse->icon().isNull());
+        auto* add = toolbar->findChild<QToolButton*>(
+            QStringLiteral("teamToolbarAdd"));
+        QVERIFY(add);
+        QVERIFY(!add->icon().isNull());
+        QVERIFY(add->menu());
+        QCOMPARE(add->popupMode(), QToolButton::InstantPopup);
+        QVERIFY(!toolbar->findChild<QToolButton*>(QStringLiteral("teamToolbarBrowse")));
+        QVERIFY(add->menu()->findChild<QAction*>(QStringLiteral("teamToolbarStartConversationAction")));
+        QVERIFY(add->menu()->findChild<QAction*>(QStringLiteral("teamToolbarBrowseChannelsAction")));
+        QVERIFY(add->menu()->findChild<QAction*>(QStringLiteral("teamToolbarAddTeamAction")));
         QVERIFY(!beta->text().isEmpty());
         QCOMPARE(beta->text(), QStringLiteral("Beta team"));
         QVERIFY(toolbar->findChild<QWidget*>(

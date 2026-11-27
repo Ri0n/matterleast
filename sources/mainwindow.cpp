@@ -44,6 +44,7 @@
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
+#include "ui/SidebarTabWidget.h"
 #include <QTimer>
 #include <QToolButton>
 #include <QTreeWidget>
@@ -487,7 +488,7 @@ void MainWindow::setupChannelTabs()
 	ui->gridLayout_2->removeWidget(ui->channelList);
 	ui->gridLayout_2->removeWidget(ui->chatAreaStackedWidget);
 
-	channelTabs = new QTabWidget(ui->centralwidget);
+	channelTabs = new SidebarTabWidget(ui->centralwidget);
 	channelTabs->setObjectName(QStringLiteral("sidebarTabs"));
 	channelTabs->setDocumentMode(true);
 	channelTabs->setSizePolicy(ui->channelList->sizePolicy());
@@ -1307,7 +1308,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         } else if (unreadFilterButton
                    && (watched == unreadFilterButton
                        || watched == unreadFilterButton->parentWidget())) {
-            // Follow the same toolbar palette event that updates the # and +
+            // Follow the same toolbar palette event that updates the plus icon
             // buttons; the filter's own stylesheet may keep stale colors.
             QTimer::singleShot(0, this, [this] { refreshUnreadFilterIcon(); });
         }
@@ -1349,7 +1350,7 @@ void MainWindow::refreshUnreadFilterIcon()
     // Windows has neither and used to fall back to an information icon.
     // The checked-state stylesheet can retain an outdated button palette
     // across system theme changes. The surrounding team toolbar receives the
-    // correct inherited palette (also used for # and +), so use that instead.
+    // correct inherited palette (also used for the plus icon), so use that instead.
     const QWidget* toolbar = unreadFilterButton->parentWidget();
     const QPalette palette = toolbar ? toolbar->palette()
                                      : QApplication::palette();

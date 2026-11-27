@@ -325,10 +325,22 @@ void ChannelItemDelegate::paint(QPainter* painter,
     painter->setFont(font);
 
     const bool muted = index.data(SidebarItem::MutedRole).toBool();
-    const QColor textColor = selected
-        ? content.palette.color(QPalette::HighlightedText)
-        : (muted ? content.palette.color(QPalette::Disabled, QPalette::Text)
-                 : content.palette.color(QPalette::Text));
+    const QColor normalText = content.palette.color(QPalette::Text);
+    const QColor mutedText = content.palette.color(QPalette::Disabled, QPalette::Text);
+    QColor textColor = selected ? content.palette.color(QPalette::HighlightedText)
+                                : (muted ? mutedText : normalText);
+    if (!selected && !muted
+        && index.data(SidebarItem::KindRole).toInt() == SidebarItem::Channel
+        && !index.data(SidebarItem::UnreadRole).toBool()
+        && !index.data(SidebarItem::MentionedRole).toBool()) {
+        // The palette already defines the muted endpoint for this theme.
+        // Leave selected, unread and mentioned conversation names at full contrast.
+        textColor = QColor::fromRgbF(
+            (normalText.redF() + mutedText.redF()) / 2.0,
+            (normalText.greenF() + mutedText.greenF()) / 2.0,
+            (normalText.blueF() + mutedText.blueF()) / 2.0,
+            (normalText.alphaF() + mutedText.alphaF()) / 2.0);
+    }
     painter->setPen(textColor);
 
     const QFontMetrics metrics(font);
