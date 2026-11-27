@@ -107,6 +107,7 @@ public:
     QString formatMessageText(const QString& str) const;
     QString formatForClipboardSelection (FormatType formatType) const;
     void clearTextSelection();
+    void activateDefault();
     void setWholeMessageSelectionMode(bool enabled);
     void setWholeMessageSelected(bool selected);
     void setHovered(bool hovered, bool immediate = false);
@@ -190,6 +191,8 @@ private slots:
     void on_authorAvatar_clicked();
 
 signals:
+    // Collection rows delegate their default activation to the existing jump action.
+    void defaultActivated();
 	void dimensionsChanged ();
     void wholeMessageSelectionToggled(const QString& postId, bool selected);
     void markUnreadRequested(const QString& postId);
