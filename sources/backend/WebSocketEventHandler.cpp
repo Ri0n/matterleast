@@ -702,6 +702,12 @@ void WebSocketEventHandler::handleEvent (const ChannelUpdatedEvent& event)
 
 	LOG_DEBUG ("Channel updated: " << channel->display_name);
 
+    if (channel->type == BackendChannel::groupChannel
+        && BackendChannel::getChannelType(event.channelData) == BackendChannel::privateChannel) {
+        backend.applyConvertedGroupChannel(event.channelData);
+        return;
+    }
+
     // Storage normalizes a DM's wire name (two IDs) into the peer ID.
     // Its label is resolved from the local account's view of that peer.
     if (channel->type != BackendChannel::directChannel) {
