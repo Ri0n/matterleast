@@ -103,6 +103,7 @@ public:
     bool isMessageSelectionMode() const { return messageSelectionMode_; }
     void beginMessageSelectionDrag(const QString& anchorPostId, const QString& currentPostId);
     void updateMessageSelectionDrag(const QString& currentPostId);
+    void suspendMessageSelectionDrag();
     void finishMessageSelectionDrag();
     void cancelMessageSelection();
 

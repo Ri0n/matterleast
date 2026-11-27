@@ -152,6 +152,34 @@ QVector<Emoji> EmojiInfo::skinToneVariantsByName(const QString& emojiName)
     return variants;
 }
 
+QString EmojiInfo::builtInNameForUnicode(const QString& glyph)
+{
+    static const QHash<QString, QString> names = [] {
+        QHash<QString, QString> result;
+        const auto add = [&result](const QString& value, const QString& name) {
+            const QString key = value.trimmed();
+            if (!key.isEmpty() && !key.contains(QStringLiteral("<img"))
+                && !result.contains(key)) {
+                result.insert(key, name);
+            }
+        };
+        for (int category = 0; category < EmojiCategory::COUNT; ++category) {
+            if (category == EmojiCategory::custom)
+                continue;
+            for (const auto& emoji : emojiVecNoSkinVariadic[category])
+                add(emoji.unicodeString, emoji.name);
+        }
+        for (const auto& emoji : emojiVecSkinVariadic) {
+            const int count = std::min(static_cast<int>(EmojiSkinTone::COUNT),
+                                       static_cast<int>(emoji.unicodeString.size()));
+            for (int tone = 0; tone < count; ++tone)
+                add(emoji.unicodeString[tone], emoji.name + EmojiSkinTone::nameString[tone]);
+        }
+        return result;
+    }();
+    return names.value(glyph);
+}
+
 QVector<Emoji> EmojiInfo::getAllBuiltInEmojis(uint32_t category, uint32_t skinTone)
 {
     if (category >= EmojiCategory::COUNT || skinTone >= EmojiSkinTone::COUNT) {

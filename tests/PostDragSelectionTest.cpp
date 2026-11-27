@@ -13,6 +13,7 @@
 #include <QTextBlock>
 #include <QTextBrowser>
 #include <QTextLayout>
+#include <QVBoxLayout>
 
 #include "backend/Backend.h"
 #include "backend/Storage.h"
@@ -354,11 +355,29 @@ private slots:
         QVERIFY(thread.rootPost->wholeMessageSelected());
         QVERIFY(thread.secondPost->wholeMessageSelected());
 
-        // Coming back shrinks the range to the anchor post again.
-        QTest::mouseMove(window, onRootText);
-        QVERIFY(thread.rootPost->wholeMessageSelected());
+        // Returning to the original text restores its selection without
+        // removing the checkbox gutter until the release.
+        const QPoint returnPoint = rootBrowser->viewport()->mapTo(
+            &area, firstLineRect(rootBrowser).center().toPoint() + QPoint(30, 0));
+        QTest::mouseMove(window, returnPoint);
+        QVERIFY(thread.log->isMessageSelectionMode());
+        QVERIFY(thread.rootPost->wholeMessageSelectionMode());
+        QVERIFY(!thread.rootPost->wholeMessageSelected());
         QVERIFY(!thread.secondPost->wholeMessageSelected());
-        QTest::mouseRelease(window, Qt::LeftButton, {}, onRootText);
+        QVERIFY(!thread.rootPost->getSelectedText().isEmpty());
+
+        // Leaving again resumes whole-message selection.
+        QTest::mouseMove(window, secondTop);
+        QVERIFY(thread.rootPost->wholeMessageSelected());
+        QVERIFY(thread.secondPost->wholeMessageSelected());
+        QVERIFY(thread.rootPost->getSelectedText().isEmpty());
+        QTest::mouseMove(window, returnPoint);
+        const QString selected = thread.rootPost->getSelectedText();
+        QVERIFY(!selected.isEmpty());
+        QTest::mouseRelease(window, Qt::LeftButton, {}, returnPoint);
+        QVERIFY(!thread.log->isMessageSelectionMode());
+        QVERIFY(!thread.rootPost->wholeMessageSelectionMode());
+        QCOMPARE(thread.rootPost->getSelectedText(), selected);
     }
 
     void draggingProfileCloseDoesNotSelectPosts()
@@ -422,6 +441,48 @@ private slots:
         QVERIFY(!thread.log->isMessageSelectionMode());
         QTest::mouseRelease(window, Qt::LeftButton, {}, otherPost);
         QVERIFY(!thread.log->isMessageSelectionMode());
+    }
+
+    void defaultClickDoesNotStealTextSelectionOrControls()
+    {
+        Thread thread;
+        openThread(thread, QStringLiteral("second message"), false);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+        // Collection rows use the default activation signal rather than
+        // opening a thread directly. Exercise the same real window dispatch.
+        QWidget window;
+        auto* layout = new QVBoxLayout(&window);
+        auto* row = new PostWidget(*thread.backend, thread.rootPost->post,
+                                   &window, nullptr, nullptr);
+        layout->addWidget(row);
+        auto* button = new QPushButton(QStringLiteral("Control"), row);
+        button->setGeometry(0, 0, 70, 22);
+        button->raise();
+        button->show();
+        window.resize(700, 200);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* browser = row->findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(browser);
+        QSignalSpy activation(row, &PostWidget::defaultActivated);
+        QSignalSpy clicked(button, &QPushButton::clicked);
+        QWindow* handle = window.windowHandle();
+        const QPoint textPoint = browser->viewport()->mapTo(
+            &window, firstLineRect(browser).center().toPoint());
+        QTest::mouseClick(handle, Qt::LeftButton, {}, textPoint);
+        QTRY_COMPARE(activation.size(), 1);
+        QTest::mouseClick(handle, Qt::LeftButton, {},
+                          button->mapTo(&window, button->rect().center()));
+        QCOMPARE(clicked.size(), 1);
+        QCOMPARE(activation.size(), 1);
+        QTest::mousePress(handle, Qt::LeftButton, {}, textPoint);
+        QTest::mouseMove(handle, textPoint + QPoint(35, 0));
+        QTest::mouseRelease(handle, Qt::LeftButton, {}, textPoint + QPoint(35, 0));
+        QVERIFY(!row->getSelectedText().isEmpty());
+        QTest::qWait(QApplication::doubleClickInterval() + 30);
+        QCOMPARE(activation.size(), 1);
     }
 
     void clickOnImageStillOpensPreview()

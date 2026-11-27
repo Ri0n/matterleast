@@ -703,6 +703,38 @@ int i;
                  "Inline Unicode emoji should render at approximately 1.3x the surrounding text size");
     }
 
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    void emojiToolTipsSurviveMessageRendering()
+    {
+        const QString fire = QString::fromUtf8("\xF0\x9F\x94\xA5");
+        const QString custom = QStringLiteral("mattermost_qt_tooltip_test");
+        EmojiRegistry registry;
+        registry.addCustomEmoji(custom, QStringLiteral("/nonexistent/emoji-tooltip.png"));
+        MessageContentWidget widget;
+        widget.setEmojiRegistry(&registry);
+        widget.setMessage(QStringLiteral("A :+1: ") + fire + QStringLiteral(" :")
+                          + custom + QStringLiteral(": [link](https://example.com) Z"));
+        showAndSettle(widget);
+        auto* richText = widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(richText != nullptr);
+        const QString plain = richText->document()->toPlainText();
+        const auto tip = [richText, &plain](const QString& text) {
+            const int pos = plain.indexOf(text);
+            if (pos < 0)
+                return QString();
+            QTextCursor cursor(richText->document());
+            cursor.setPosition(pos + text.size());
+            return cursor.charFormat().toolTip();
+        };
+        const QString thumb = QString::fromUtf8("\xF0\x9F\x91\x8D");
+        QCOMPARE(tip(thumb), QStringLiteral(":+1:"));
+        QCOMPARE(tip(fire), QStringLiteral(":fire:"));
+        QCOMPARE(firstImageFormat(*richText).toolTip(), QStringLiteral(":%1:").arg(custom));
+        QCOMPARE(tip(QStringLiteral("link")), QStringLiteral("https://example.com"));
+        QVERIFY(tip(QStringLiteral("Z")).isEmpty());
+    }
+#endif
+
     void inlineCustomEmojiUsesFontRelativeSizeAndMiddleAlignment()
     {
         const QString name = QStringLiteral("mattermost_qt_inline_custom_test");

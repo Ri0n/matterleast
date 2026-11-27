@@ -74,3 +74,9 @@ because Qt's exporter drops QTextFormat::TextToolTip. This covers posts,
 blockquotes, quote previews, and collapsed/expanded channel topics.
 Non-link text has no link tooltip. Quote preview full-text fallback tooltips
 belong to the surrounding frame, not the inner text browser.
+
+Message emoji carry character-format tooltips: preserve the original shortcode
+for replacements (including custom images and aliases), and use the canonical
+built-in name for literal Unicode graphemes. The generated reverse lookup is
+shared with jumbo-emoji detection and sizing. Link tooltips take precedence.
+No runtime custom emoji are entered into the shared reverse lookup.
