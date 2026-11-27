@@ -2220,11 +2220,18 @@ void Backend::convertGroupMessageToChannel(const QString& channelId, const QStri
             return;
         }
         const QJsonObject data = doc.object();
+        const bool alreadyConverted = channel->type == BackendChannel::privateChannel;
         if (data.value(QStringLiteral("id")).toString() != channelId
             || data.value(QStringLiteral("team_id")).toString() != teamId
             || !applyConvertedGroupChannel(data)) {
             if (callback) callback(false, tr("The server returned an invalid converted channel."));
             return;
+        }
+        // channel_updated may have preceded the server's category updates.
+        // Refresh once more on REST success if the transition was applied early.
+        if (alreadyConverted) {
+            if (auto* sidebar = SidebarService::existing(*this))
+                sidebar->refreshAccountSnapshot();
         }
         if (callback) callback(true, {});
     }));
