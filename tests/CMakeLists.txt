@@ -762,7 +762,8 @@ if(TARGET matterleast-core)
     add_test(NAME own-status-test COMMAND own-status-test)
     set_tests_properties(own-status-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    add_executable(team-toolbar-test TeamToolbarTest.cpp)
+    add_executable(team-toolbar-test TeamToolbarTest.cpp
+        "${CMAKE_SOURCE_DIR}/resource.qrc")
     target_link_libraries(team-toolbar-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME team-toolbar-test COMMAND team-toolbar-test)
     set_tests_properties(team-toolbar-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
