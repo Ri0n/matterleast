@@ -34,6 +34,7 @@ ChannelUpdatedEvent::ChannelUpdatedEvent (const QJsonObject& data, const QJsonOb
 	QJsonObject channelObject = QJsonDocument::fromJson (data.value ("channel").toString().toUtf8()).object();
 
 	channelID = channelObject.value("id").toString();
+    channelData = channelObject;
 	displayName = channelObject.value("display_name").toString();
 	name = channelObject.value("name").toString();
 	header = channelObject.value("header").toString();
