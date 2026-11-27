@@ -57,43 +57,12 @@
 namespace Mattermost {
 namespace {
 
-const QSet<QString>& unicodeEmojiStrings()
-{
-    static const QSet<QString> emojiStrings = [] {
-        QSet<QString> result;
-
-        for (int category = 0; category < EmojiCategory::COUNT; ++category) {
-            if (category == EmojiCategory::custom) {
-                continue;
-            }
-
-            const int skinToneCount = category == EmojiCategory::people
-                ? EmojiSkinTone::COUNT
-                : 1;
-            for (int skinTone = 0; skinTone < skinToneCount; ++skinTone) {
-                const QVector<Emoji> emojis = EmojiInfo::getAllBuiltInEmojis(category, skinTone);
-                for (const Emoji& emoji : emojis) {
-                    const QString glyph = emoji.unicodeString.trimmed();
-                    if (!glyph.isEmpty() && !glyph.contains(QStringLiteral("<img"))) {
-                        result.insert(glyph);
-                    }
-                }
-            }
-        }
-
-        return result;
-    }();
-
-    return emojiStrings;
-}
-
 bool isEmojiOnlyMessage(const QString& message, EmojiRegistry* registry)
 {
     if (message.trimmed().isEmpty()) {
         return false;
     }
 
-    const QSet<QString>& emojiStrings = unicodeEmojiStrings();
     QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, message);
     bool foundEmoji = false;
     int position = 0;
@@ -125,7 +94,7 @@ bool isEmojiOnlyMessage(const QString& message, EmojiRegistry* registry)
             return false;
         }
 
-        if (!emojiStrings.contains(message.mid(position, end - position))) {
+        if (EmojiInfo::builtInNameForUnicode(message.mid(position, end - position)).isEmpty()) {
             return false;
         }
         foundEmoji = true;
@@ -148,7 +117,6 @@ void applyEmojiPresentation(QTextDocument& document, bool jumbo,
         : EmojiPresentation::Mode::Inline;
     const qreal scale = EmojiPresentation::fontScale(mode);
     const QString emojiFamily = EmojiFont::legacyEmojiFontFamily();
-    const QSet<QString>& emojiStrings = unicodeEmojiStrings();
     QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, text);
     finder.toStart();
 
@@ -160,7 +128,7 @@ void applyEmojiPresentation(QTextDocument& document, bool jumbo,
         }
 
         const QString grapheme = text.mid(start, end - start);
-        if (emojiStrings.contains(grapheme)) {
+        if (!EmojiInfo::builtInNameForUnicode(grapheme).isEmpty()) {
             QTextCursor cursor(&document);
             cursor.setPosition(start);
 
@@ -424,7 +392,14 @@ protected:
             return;
         }
         dragConsumed = false;
+        const bool plainClick = event && event->button() == Qt::LeftButton
+            && anchorAt(event->pos()).isEmpty();
         QTextBrowser::mouseReleaseEvent(event);
+        // QTextBrowser accepts even a plain click to place its text cursor.
+        // Let only an unselected, non-link release reach the parent post.
+        if (plainClick && !textCursor().hasSelection()) {
+            event->ignore();
+        }
     }
 
     void resizeEvent(QResizeEvent* event) override
@@ -781,6 +756,14 @@ public:
     }
 
 protected:
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        QPlainTextEdit::mouseReleaseEvent(event);
+        if (event && event->button() == Qt::LeftButton && !textCursor().hasSelection()) {
+            event->ignore();
+        }
+    }
+
     void resizeEvent(QResizeEvent* event) override
     {
         QPlainTextEdit::resizeEvent(event);

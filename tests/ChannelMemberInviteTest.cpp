@@ -6,6 +6,7 @@
 #include <QAction>
 #include <QDialog>
 #include <QContextMenuEvent>
+#include <QComboBox>
 #include <QApplication>
 #include <QTimer>
 #include <QLabel>
@@ -387,6 +388,8 @@ private slots:
             QStringLiteral("Member"), QStringLiteral("System admin")
         };
         QTRY_COMPARE(labels(), expected);
+        QTRY_VERIFY(dialog.property("channelRolePermissionReady").toBool());
+        QVERIFY(!dialog.findChild<QComboBox*>(QStringLiteral("memberRoleEditor")));
         QCOMPARE(server.roleBatchRequests, 0); // Paged membership already has roles.
         const auto admin = channel->members.constFind(QStringLiteral("person00"));
         QVERIFY(admin != channel->members.cend());
@@ -506,6 +509,16 @@ private slots:
         };
         QTRY_VERIFY(rowFor(QStringLiteral("person03")));
         QCOMPARE(roleFor(QStringLiteral("person03")), QStringLiteral("Member"));
+        const auto comboFor = [&rowFor](const QString& id) -> QComboBox* {
+            QWidget* row = rowFor(id);
+            return row ? row->findChild<QComboBox*>(QStringLiteral("memberRoleEditor")) : nullptr;
+        };
+        QTRY_VERIFY(comboFor(QStringLiteral("person03")));
+        QTRY_VERIFY(rowFor(QStringLiteral("person01")));
+        QVERIFY(!comboFor(QStringLiteral("person01")));
+        QTRY_VERIFY(rowFor(QStringLiteral("person02")));
+        QVERIFY(!comboFor(QStringLiteral("person02")));
+        QCOMPARE(comboFor(QStringLiteral("person03"))->currentData().toBool(), false);
 
         const auto popupActionFor = [&](const QString& userId,
                                         const QString& name,
@@ -539,17 +552,20 @@ private slots:
         };
 
         QVERIFY(popupActionFor(QStringLiteral("person03"),
-                              QStringLiteral("makeChannelAdminAction"), true));
+                              QStringLiteral("makeChannelAdminAction"), false));
+        QTest::keyClick(comboFor(QStringLiteral("person03")), Qt::Key_Down);
         QTRY_COMPARE(server.roleMutations, 1);
         QTRY_COMPARE(roleFor(QStringLiteral("person03")),
                      QStringLiteral("Channel admin"));
         QVERIFY(channel->members.constFind(QStringLiteral("person03")).value().isAdmin);
+        QTRY_VERIFY(comboFor(QStringLiteral("person03"))->currentData().toBool());
 
         QVERIFY(popupActionFor(QStringLiteral("person03"),
                               QStringLiteral("makeChannelMemberAction"), true));
         QTRY_COMPARE(server.roleMutations, 2);
         QTRY_COMPARE(roleFor(QStringLiteral("person03")), QStringLiteral("Member"));
         QVERIFY(!channel->members.constFind(QStringLiteral("person03")).value().isAdmin);
+        QTRY_VERIFY(!comboFor(QStringLiteral("person03"))->currentData().toBool());
 
         // A guest's system role cannot be changed in a channel-specific menu.
         QVERIFY(!popupActionFor(QStringLiteral("person01"),

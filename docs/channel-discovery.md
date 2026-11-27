@@ -77,6 +77,13 @@ A **Channel membership** column distinguishes **Already in channel** (not select
 Local DM/GM discovery and conversation creation actions do not participate in this mode. It has no GM participant-count limit.
 DM/GM membership is intentionally not changed by this action.
 
+The Role column offers Member / Channel admin selection for materialized rows
+when `canManageChannelRoles()` grants permission. Guest and System admin labels
+remain read-only in the column; the existing role context actions retain their
+semantics. A pending mutation disables the editor and retains the canonical
+role until the server responds and membership is refreshed. Permission changes
+and successful role changes update only materialized rows, not the paged list.
+
 Adds run sequentially through `Backend::addChannelMember()`. A validated success updates canonical
 membership and notifies the member list immediately. If a later addition fails, show the server error
 and retain the failed/unsubmitted chips; retry must not resend successful additions. Closing the picker
