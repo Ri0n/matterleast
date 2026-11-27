@@ -286,9 +286,9 @@ private:
                             widget->mapFromGlobal(position)).isEmpty();
                     }
                 }
-            } else if (auto* edit = qobject_cast<QPlainTextEdit*>(widget->parentWidget())) {
-                clickOnText_ = edit->viewport() == widget
-                    && edit->objectName() == QStringLiteral("messageCodeBlock");
+            } else if (auto* plainEdit = qobject_cast<QPlainTextEdit*>(widget->parentWidget())) {
+                clickOnText_ = plainEdit->viewport() == widget
+                    && plainEdit->objectName() == QStringLiteral("messageCodeBlock");
             }
         }
         if (clickOrigin_ && !clickBlocked_
@@ -312,10 +312,10 @@ private:
                 textEditor_ = edit;
                 textAnchor_ = edit->cursorForPosition(widget->mapFromGlobal(globalPos));
             }
-        } else if (auto* edit = qobject_cast<QPlainTextEdit*>(widget->parentWidget())) {
-            if (edit->viewport() == widget) {
-                textEditor_ = edit;
-                textAnchor_ = edit->cursorForPosition(widget->mapFromGlobal(globalPos));
+        } else if (auto* plainEdit = qobject_cast<QPlainTextEdit*>(widget->parentWidget())) {
+            if (plainEdit->viewport() == widget) {
+                textEditor_ = plainEdit;
+                textAnchor_ = plainEdit->cursorForPosition(widget->mapFromGlobal(globalPos));
             }
         }
     }
@@ -336,8 +336,8 @@ private:
     {
         if (auto* edit = qobject_cast<QTextEdit*>(textEditor_.data())) {
             restoreSelection(edit, globalPos);
-        } else if (auto* edit = qobject_cast<QPlainTextEdit*>(textEditor_.data())) {
-            restoreSelection(edit, globalPos);
+        } else if (auto* plainEdit = qobject_cast<QPlainTextEdit*>(textEditor_.data())) {
+            restoreSelection(plainEdit, globalPos);
         }
     }
 
