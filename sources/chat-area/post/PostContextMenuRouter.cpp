@@ -11,6 +11,7 @@
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTimer>
 #include <QWidget>
 
 #include "PostWidget.h"
@@ -76,7 +77,17 @@ QPoint globalMousePosition(const QMouseEvent* event)
 class PostContextMenuRouter final : public QObject
 {
 public:
-    using QObject::QObject;
+    explicit PostContextMenuRouter(QObject* parent) : QObject(parent)
+    {
+        clickTimer_.setSingleShot(true);
+        connect(&clickTimer_, &QTimer::timeout, this, [this] {
+            QPointer<PostWidget> target = pendingClick_;
+            pendingClick_.clear();
+            if (target) {
+                target->activateDefault();
+            }
+        });
+    }
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override
@@ -104,9 +115,14 @@ protected:
             return true;
         }
 
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            cancelDefaultClick();
+        }
+
         if (event->type() == QEvent::MouseButtonPress) {
             auto* mouse = static_cast<QMouseEvent*>(event);
             if (mouse->button() == Qt::LeftButton) {
+                rememberDefaultPress(widget, mouse);
                 PostWidget* post = enclosingPost(widget);
                 ChatLogWidget* log = post ? enclosingLog(post) : nullptr;
                 // An ignored press can propagate from a post into its
@@ -128,6 +144,15 @@ protected:
                 }
             }
             return QObject::eventFilter(watched, event);
+        }
+
+        if (event->type() == QEvent::MouseMove && clickOrigin_) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if ((mouse->buttons() & Qt::LeftButton)
+                && (globalMousePosition(mouse) - clickStart_).manhattanLength()
+                    >= QApplication::startDragDistance()) {
+                clickMoved_ = true;
+            }
         }
 
         if (event->type() == QEvent::MouseMove && dragOrigin_ && dragLog_) {
@@ -185,6 +210,32 @@ protected:
                 finishDrag();
                 clearDrag();
                 if (consumed) {
+                    cancelDefaultClick();
+                    return true;
+                }
+            }
+            if (mouse->button() == Qt::LeftButton) {
+                clickReleaseSeen_ = true;
+                // A release that reaches the post itself was not consumed by
+                // any of its children. A press handled by a control is not
+                // eligible even if that control ignores its release.
+                if (widget == clickOrigin_.data() && clickEligible_
+                    && !clickMoved_ && mouse->modifiers() == Qt::NoModifier
+                    && clickOrigin_->rect().contains(clickOrigin_->mapFromGlobal(
+                           globalMousePosition(mouse)))
+                    && !clickOrigin_->wholeMessageSelectionMode()) {
+                    QPointer<PostWidget> target = clickOrigin_;
+                    const bool selectableText = clickOnText_;
+                    cancelDefaultClick();
+                    if (selectableText) {
+                        // Preserve double-click word selection. Only text
+                        // clicks wait for the platform double-click interval.
+                        pendingClick_ = target;
+                        clickTimer_.start(QApplication::doubleClickInterval());
+                    } else if (target) {
+                        target->activateDefault();
+                    }
+                    mouse->accept();
                     return true;
                 }
             }
@@ -194,6 +245,58 @@ protected:
     }
 
 private:
+    void cancelDefaultClick()
+    {
+        clickTimer_.stop();
+        pendingClick_.clear();
+        clickOrigin_.clear();
+        clickReceiver_.clear();
+        clickEligible_ = false;
+        clickMoved_ = false;
+        clickReleaseSeen_ = false;
+        clickOnText_ = false;
+        clickBlocked_ = false;
+    }
+
+    void rememberDefaultPress(QWidget* widget, QMouseEvent* mouse)
+    {
+        const QPoint position = globalMousePosition(mouse);
+        // Qt delivers ignored mouse presses up the widget parent chain. Do
+        // not mistake that propagation for a second physical press.
+        const bool propagated = clickReceiver_ && !clickReleaseSeen_
+            && widget->isAncestorOf(clickReceiver_.data()) && position == clickStart_;
+        if (!propagated) {
+            cancelDefaultClick();
+            clickReceiver_ = widget;
+            clickOrigin_ = enclosingPost(widget);
+            clickStart_ = position;
+            if (!clickOrigin_) {
+                return;
+            }
+            clickBlocked_ = mouse->modifiers() != Qt::NoModifier
+                || isPostDragControl(widget, clickOrigin_.data());
+            if (auto* edit = qobject_cast<QTextEdit*>(widget->parentWidget())) {
+                const QString name = edit->objectName();
+                if (edit->viewport() == widget
+                    && (name == QStringLiteral("messageRichText")
+                        || name == QStringLiteral("messageQuoteRichText"))) {
+                    clickOnText_ = true;
+                    if (auto* browser = qobject_cast<QTextBrowser*>(edit)) {
+                        clickBlocked_ = clickBlocked_ || !browser->anchorAt(
+                            widget->mapFromGlobal(position)).isEmpty();
+                    }
+                }
+            } else if (auto* edit = qobject_cast<QPlainTextEdit*>(widget->parentWidget())) {
+                clickOnText_ = edit->viewport() == widget
+                    && edit->objectName() == QStringLiteral("messageCodeBlock");
+            }
+        }
+        if (clickOrigin_ && !clickBlocked_
+            && (widget == clickOrigin_.data() || clickOnText_)) {
+            clickEligible_ = true;
+        }
+    }
+
     void rememberTextAnchor(QWidget* widget, const QPoint& globalPos)
     {
         // Only the original text viewport can resume a text drag. Controls,
@@ -258,6 +361,17 @@ private:
         textEditor_.clear();
         textAnchor_ = QTextCursor();
     }
+
+    QPointer<PostWidget> clickOrigin_;
+    QPointer<QWidget> clickReceiver_;
+    QPointer<PostWidget> pendingClick_;
+    QPoint clickStart_;
+    QTimer clickTimer_;
+    bool clickEligible_ = false;
+    bool clickMoved_ = false;
+    bool clickReleaseSeen_ = false;
+    bool clickOnText_ = false;
+    bool clickBlocked_ = false;
 
     QPointer<PostWidget> dragOrigin_;
     QPointer<ChatLogWidget> dragLog_;
