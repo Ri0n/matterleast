@@ -517,8 +517,10 @@ void ChatArea::refreshCallButton()
 
     auto* manager = PluginManager::instance();
     const bool available = manager && manager->callsAvailable();
-    chatCallButton->setVisible(available);
-    if (!available) return;
+    if (!available) {
+        chatCallButton->hide();
+        return;
+    }
 
     const auto& calls = *manager;
     const auto state = calls.callsSnapshot();
@@ -526,6 +528,12 @@ void ChatArea::refreshCallButton()
     const bool active = state.state != CallsState::Idle;
     const bool current = active && state.accountId == calls.accountId(backend)
         && state.channelId == channel.id;
+    const bool conversation = channel.type == BackendChannel::directChannel
+        || channel.type == BackendChannel::groupChannel;
+    // A converted GM no longer offers new calls, but an existing call can
+    // still be ended from its original header.
+    chatCallButton->setVisible(conversation || current);
+    if (!conversation && !current) return;
     const bool otherCall = active && !current;
     const bool leaving = state.state == CallsState::Leaving;
     const bool failed = state.state == CallsState::Failed;
@@ -736,11 +744,13 @@ void ChatArea::init()
     if (!isThread) {
         ui->titleLabel->setText(channel.display_name);
         ui->statusLabel->setText(channel.getChannelDescription());
+        refreshCallButton();
         signalConnections.push_back(connect(&channel, &BackendChannel::onUpdated,
                                             this, [this] {
             ui->titleLabel->setText(channel.display_name);
             ui->statusLabel->setLinkTeamName(conversationTeamName(backend, channel));
             ui->statusLabel->setText(channel.getChannelDescription());
+            refreshCallButton();
         }));
 
         signalConnections.push_back(connect(&channel,
