@@ -35,6 +35,7 @@ public:
 	virtual ~ChannelUpdatedEvent ();
 public:
 	QString channelID;
+    QJsonObject channelData;
 	QString	displayName;
 	QString	name;
 	QString	header;
