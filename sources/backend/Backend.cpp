@@ -57,6 +57,7 @@
 #include "NetworkRequest.h"
 #include "AttachmentService.h"
 #include "ServerUiService.h"
+#include "SidebarService.h"
 #include "CustomEmojiService.h"
 #include "UploadTrace.h"
 #include "AvatarImage.h"
@@ -1272,8 +1273,16 @@ void Backend::retrieveOwnChannelMemberships()
                 return;
             }
 
-            for (const QJsonValue& value : doc.array())
-                storage.addOwnChannel(value.toObject());
+            for (const QJsonValue& value : doc.array()) {
+                const QJsonObject data = value.toObject();
+                auto* existing = storage.getChannelById(data.value(QStringLiteral("id")).toString());
+                if (existing && existing->type == BackendChannel::groupChannel
+                    && BackendChannel::getChannelType(data) == BackendChannel::privateChannel) {
+                    applyConvertedGroupChannel(data);
+                } else {
+                    storage.addOwnChannel(data);
+                }
+            }
 
             emit onAllTeamChannelsPopulated();
         }));
@@ -1363,10 +1372,18 @@ void Backend::retrieveChannel (BackendTeam& team,
             return;
         }
 
-        BackendChannel* channel = storage.addTeamChannel(*teamGuard, channelData);
-        if (!channel) {
-            channel = storage.getChannelById(channelID);
+        if (channelData.value(QStringLiteral("team_id")).toString() != teamGuard->id)
+            return;
+        BackendChannel* channel = storage.getChannelById(channelID);
+        if (channel && channel->type == BackendChannel::groupChannel
+            && channelType == BackendChannel::privateChannel) {
+            channel = applyConvertedGroupChannel(channelData);
+            if (channel && callback)
+                callback(*channel);
+            return;
         }
+        if (!channel)
+            channel = storage.addTeamChannel(*teamGuard, channelData);
         if (!channel) {
             return;
         }
@@ -2131,6 +2148,86 @@ void Backend::createGroupChannel(
                 callback(*channel);
             }
         }));
+}
+
+void Backend::retrieveGroupConversionTeams(const QString& channelId,
+    std::function<void(QJsonArray, const QString&)> callback)
+{
+    QPointer<BackendChannel> channel(storage.getChannelById(channelId));
+    if (!channel || channel->type != BackendChannel::groupChannel) {
+        if (callback) callback({}, tr("The group message is no longer available."));
+        return;
+    }
+    NetworkRequest request(_networkSession, QStringLiteral("channels/") + channelId
+                           + QStringLiteral("/common_teams"));
+    httpConnector.get(request, HttpResponseCallback(
+        [channel, callback = std::move(callback)](const QJsonDocument& doc, const QNetworkReply& reply) {
+        if (!callback) return;
+        if (!channel || channel->type != BackendChannel::groupChannel) {
+            callback({}, tr("The group message is no longer available."));
+            return;
+        }
+        const int status = reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply.error() != QNetworkReply::NoError || status < 200 || status >= 300 || !doc.isArray()) {
+            const QString error = doc.object().value(QStringLiteral("message")).toString();
+            callback({}, !error.isEmpty() ? error : reply.errorString());
+            return;
+        }
+        callback(doc.array(), {});
+    }));
+}
+
+BackendChannel* Backend::applyConvertedGroupChannel(const QJsonObject& channelData)
+{
+    auto* existing = storage.getChannelById(channelData.value(QStringLiteral("id")).toString());
+    const bool wasGroup = existing && existing->type == BackendChannel::groupChannel;
+    QPointer<BackendChannel> channel(storage.applyConvertedGroupChannel(channelData));
+    if (!channel || !wasGroup) return channel.data();
+    emit channel->onUpdated();
+    if (!channel) return nullptr;
+    if (auto* sidebar = SidebarService::existing(*this))
+        sidebar->refreshAccountSnapshot();
+    if (channel && channel->team)
+        emit channel->team->onNewChannel(*channel);
+    return channel.data();
+}
+
+void Backend::convertGroupMessageToChannel(const QString& channelId, const QString& teamId,
+    const QString& name, const QString& displayName, StatusUpdateResult callback)
+{
+    QPointer<BackendChannel> channel(storage.getChannelById(channelId));
+    if (!channel || channel->type != BackendChannel::groupChannel
+        || !storage.getTeamById(teamId) || name.isEmpty() || displayName.isEmpty()) {
+        if (callback) callback(false, tr("Invalid group message or destination channel."));
+        return;
+    }
+    const QJsonObject payload {{QStringLiteral("channel_id"), channelId},
+        {QStringLiteral("team_id"), teamId}, {QStringLiteral("name"), name},
+        {QStringLiteral("display_name"), displayName}};
+    NetworkRequest request(_networkSession, QStringLiteral("channels/") + channelId
+                           + QStringLiteral("/convert_to_channel"));
+    httpConnector.post(request, QByteArrayCreator(payload), HttpResponseCallback(
+        [this, channel, channelId, teamId, callback = std::move(callback)](
+            const QJsonDocument& doc, const QNetworkReply& reply) {
+        if (!channel) {
+            if (callback) callback(false, tr("The group message is no longer available."));
+            return;
+        }
+        const int status = reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply.error() != QNetworkReply::NoError || status < 200 || status >= 300 || !doc.isObject()) {
+            const QString error = doc.object().value(QStringLiteral("message")).toString();
+            if (callback) callback(false, !error.isEmpty() ? error : reply.errorString());
+            return;
+        }
+        const QJsonObject data = doc.object();
+        if (data.value(QStringLiteral("id")).toString() != channelId
+            || data.value(QStringLiteral("team_id")).toString() != teamId
+            || !applyConvertedGroupChannel(data)) {
+            if (callback) callback(false, tr("The server returned an invalid converted channel."));
+            return;
+        }
+        if (callback) callback(true, {});
+    }));
 }
 
 void Backend::addUserToChannel (const BackendChannel& channel,
