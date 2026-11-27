@@ -106,6 +106,17 @@ PostListWidget::PostListWidget(QWidget* parent)
 
 }
 
+QColor PostListWidget::hoverHighlightOverlayColor() const
+{
+    const QColor base = viewport()->palette().color(viewport()->backgroundRole());
+    if (base.lightness() >= 128) {
+        // Darken the light content surface by approximately ten percent.
+        // The shared hover toolbar uses the same composited surface color.
+        return QColor(0, 0, 0, 26);
+    }
+    return LongListWidget::hoverHighlightOverlayColor();
+}
+
 PostListWidget::~PostListWidget()
 {
     // LongListWidget destroys materialized rows after our derived destructor.
