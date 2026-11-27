@@ -20,6 +20,10 @@ Consequences:
 
 `Copy image` puts a decoded `QImage` of the original file (`/api/v4/files/<id>`) on the clipboard and falls back to the rendered preview when the original cannot be downloaded or decoded.
 
+## Default post activation
+
+A plain left press and release that propagates to `PostWidget` activates its existing thread action (or, in a collection, the existing jump action). The router tracks the physical gesture so an accepted child press, a button/slider, a modifier, or a drag cannot accidentally become a post click. Read-only text editors explicitly ignore a non-link release with no text selection; text clicks wait for the platform double-click interval so word selection remains available. Collection rows connect `PostWidget::defaultActivated` to their jump button instead of duplicating navigation policy. A post in an already-open thread does not reopen that thread.
+
 ## Message selection drag
 
 The same application filter owns starting a drag-selection of whole messages:
