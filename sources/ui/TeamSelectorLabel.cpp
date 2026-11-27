@@ -28,10 +28,10 @@
 #include "backend/Backend.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendTeam.h"
-#include "channel-tree/ChannelIcons.h"
 #include "channel-tree/ChannelTree.h"
 #include "channel-tree/SidebarItem.h"
 #include "channel-tree-dialogs/TeamChannelsListDialog.h"
+#include "channel-tree-dialogs/UserSearchDialog.h"
 #include "options/MLOptions.h"
 #include "ui/IconUtils.h"
 
@@ -226,21 +226,32 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingC
     add->setObjectName(QStringLiteral("teamToolbarAdd"));
     add->setIconSize(QSize(20, 20));
     add->setAutoRaise(true);
-    add->setFixedSize(30, 28);
-    add->setToolTip(tr("Add another team"));
-    add->setAccessibleName(tr("Add another team"));
-    connect(add, &QToolButton::clicked, this, [this] { addAnotherTeam(); });
+    add->setFixedSize(36, 28);
+    add->setToolTip(tr("Add or browse conversations and teams"));
+    add->setAccessibleName(tr("Add or browse conversations and teams"));
+    add->setPopupMode(QToolButton::InstantPopup);
+    auto* menu = new QMenu(add);
+    auto* chats = menu->addAction(tr("Direct or group messages…"));
+    chats->setObjectName(QStringLiteral("teamToolbarStartConversationAction"));
+    connect(chats, &QAction::triggered, this, [this] {
+        if (tree_ && tree_->backendInstance()) {
+            UserSearchDialog::showConversationPicker(*tree_->backendInstance(), tree_);
+        }
+    });
+    auto* channels = menu->addAction(tr("Browse public channels…"));
+    channels->setObjectName(QStringLiteral("teamToolbarBrowseChannelsAction"));
+    connect(channels, &QAction::triggered, this, [this] { showPublicChannels(); });
+    auto* teams = menu->addAction(tr("Add another team…"));
+    teams->setObjectName(QStringLiteral("teamToolbarAddTeamAction"));
+    connect(teams, &QAction::triggered, this, [this] { addAnotherTeam(); });
+    connect(menu, &QMenu::aboutToShow, this, [this, chats, channels, teams] {
+        auto* backend = tree_ ? tree_->backendInstance() : nullptr;
+        chats->setEnabled(backend != nullptr);
+        channels->setEnabled(backend && !activeTeamId().isEmpty());
+        teams->setEnabled(backend != nullptr);
+    });
+    add->setMenu(menu);
     outer->addWidget(add);
-
-    auto* browse = new QToolButton(bar);
-    browse->setObjectName(QStringLiteral("teamToolbarBrowse"));
-    browse->setIconSize(QSize(20, 20));
-    browse->setAutoRaise(true);
-    browse->setFixedSize(28, 28);
-    browse->setToolTip(tr("Browse public channels"));
-    browse->setAccessibleName(tr("Browse public channels"));
-    connect(browse, &QToolButton::clicked, this, [this] { showPublicChannels(); });
-    outer->insertWidget(outer->count() - 1, browse);
 
     // The legacy header selector is hidden, so its showEvent cannot attach.
     attachTree();
@@ -262,12 +273,6 @@ void TeamSelectorLabel::refreshTeamToolbarIcons()
         add->setIcon(IconUtils::tintedSymbolicIcon(
             QStringLiteral(":/icons/add"),
             add->palette().color(QPalette::ButtonText)));
-    }
-    if (auto* browse = _teamToolbar->findChild<QToolButton*>(
-            QStringLiteral("teamToolbarBrowse"))) {
-        browse->setIcon(IconUtils::tintedIcon(
-            ChannelIcons::channel(),
-            browse->palette().color(QPalette::ButtonText)));
     }
 }
 
