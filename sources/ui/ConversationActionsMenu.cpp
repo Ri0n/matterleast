@@ -6,6 +6,13 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QComboBox>
+#include <QDialog>
+#include <QFormLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QVBoxLayout>
 #include <QDialogButtonBox>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -21,6 +28,7 @@
 #include "backend/types/BackendUser.h"
 #include "channel-tree/SidebarChannelMovePolicy.h"
 #include "channel-tree-dialogs/EditChannelPropertiesDialog.h"
+#include "channel-tree-dialogs/CreateChannelDialog.h"
 #include "channel-tree-dialogs/UserSearchDialog.h"
 #include "channel-tree-dialogs/ViewChannelMembersListDialog.h"
 #include "chat-area/ChannelTopicEditDialog.h"
@@ -43,11 +51,11 @@ BackendChannel* getChannel(Backend& backend, const QString& id)
 QString menuTeamId(Backend& backend, const BackendChannel& channel,
                    const QString& preferredTeamId)
 {
-    if (!preferredTeamId.isEmpty()) {
-        return preferredTeamId;
-    }
     if (channel.team) {
         return channel.team->id;
+    }
+    if (!preferredTeamId.isEmpty()) {
+        return preferredTeamId;
     }
     return backend.getCurrentTeamContextId();
 }
@@ -84,6 +92,114 @@ QAction* addAction(QMenu& menu, const QString& name, const QString& title,
                          [handler = std::move(handler)] { handler(); });
     }
     return action;
+}
+
+void openGroupConversionDialog(Backend& backend, const QString& channelId,
+                               const QString& preferredTeam, QWidget* parent)
+{
+    if (!parent) return;
+    auto* dialog = new QDialog(parent);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setObjectName(QStringLiteral("convertGroupMessageDialog"));
+    dialog->setWindowTitle(QObject::tr("Convert to private channel"));
+    auto* layout = new QVBoxLayout(dialog);
+    auto* explanation = new QLabel(QObject::tr(
+        "The group message will become a private channel in the selected team. "
+        "Its message history and members are retained. This cannot be undone."), dialog);
+    explanation->setWordWrap(true);
+    layout->addWidget(explanation);
+    auto* form = new QFormLayout;
+    auto* teams = new QComboBox(dialog);
+    teams->setObjectName(QStringLiteral("conversionTeam"));
+    auto* displayName = new QLineEdit(dialog);
+    displayName->setObjectName(QStringLiteral("conversionDisplayName"));
+    displayName->setMaxLength(64);
+    auto* urlName = new QLineEdit(dialog);
+    urlName->setObjectName(QStringLiteral("conversionUrlName"));
+    urlName->setMaxLength(64);
+    form->addRow(QObject::tr("Team:"), teams);
+    form->addRow(QObject::tr("Display name:"), displayName);
+    form->addRow(QObject::tr("URL name:"), urlName);
+    layout->addLayout(form);
+    auto* status = new QLabel(QObject::tr("Loading common teams…"), dialog);
+    status->setTextFormat(Qt::PlainText);
+    status->setWordWrap(true);
+    layout->addWidget(status);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    auto* convert = buttons->button(QDialogButtonBox::Ok);
+    convert->setText(QObject::tr("Convert"));
+    convert->setEnabled(false);
+    layout->addWidget(buttons);
+    const QPointer<QDialog> dialogGuard(dialog);
+    const QPointer<Backend> backendGuard(&backend);
+    const auto validate = [teams, displayName, urlName, convert] {
+        static const QRegularExpression validName(QStringLiteral("^[a-z0-9][a-z0-9_-]{0,63}$"));
+        convert->setEnabled(teams->currentIndex() >= 0 && teams->isEnabled()
+            && !displayName->text().trimmed().isEmpty()
+            && validName.match(urlName->text().trimmed()).hasMatch());
+    };
+    teams->setEnabled(false);
+    QObject::connect(displayName, &QLineEdit::textChanged, dialog, [urlName, validate](const QString& text) {
+        if (!urlName->isModified())
+            urlName->setText(CreateChannelDialog::generatedChannelName(text));
+        validate();
+    });
+    QObject::connect(urlName, &QLineEdit::textChanged, dialog, validate);
+    QObject::connect(teams, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, validate);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, dialog,
+        [dialogGuard, backendGuard, channelId, teams, displayName, urlName, status, validate] {
+        if (!dialogGuard || !backendGuard || !teams->isEnabled()) return;
+        const QString teamId = teams->currentData().toString();
+        const QString name = urlName->text().trimmed();
+        const QString display = displayName->text().trimmed();
+        teams->setEnabled(false);
+        displayName->setEnabled(false);
+        urlName->setEnabled(false);
+        validate();
+        status->setText(QObject::tr("Converting…"));
+        backendGuard->convertGroupMessageToChannel(channelId, teamId, name, display,
+            [dialogGuard, backendGuard, channelId, teams, displayName, urlName, status, validate]
+            (bool success, const QString& error) {
+            if (!dialogGuard || !backendGuard) return;
+            if (success) {
+                dialogGuard->accept();
+                if (backendGuard)
+                    AppNavigationService::instance(*backendGuard).openChannel(channelId);
+                return;
+            }
+            status->setText(error);
+            teams->setEnabled(true);
+            displayName->setEnabled(true);
+            urlName->setEnabled(true);
+            validate();
+        });
+    });
+    dialog->open();
+    backend.retrieveGroupConversionTeams(channelId,
+        [dialogGuard, backendGuard, preferredTeam, teams, status, validate]
+        (const QJsonArray& commonTeams, const QString& error) {
+        if (!dialogGuard || !backendGuard) return;
+        if (!error.isEmpty()) {
+            status->setText(error);
+            return;
+        }
+        for (const auto& value : commonTeams) {
+            const QString id = value.toObject().value(QStringLiteral("id")).toString();
+            const BackendTeam* team = backendGuard->getStorage().getTeamById(id);
+            if (team && teams->findData(id) < 0)
+                teams->addItem(team->display_name.isEmpty() ? team->name : team->display_name, id);
+        }
+        if (!teams->count()) {
+            status->setText(QObject::tr("There is no common team for all group members."));
+            return;
+        }
+        const int preferred = teams->findData(preferredTeam);
+        if (preferred >= 0) teams->setCurrentIndex(preferred);
+        teams->setEnabled(true);
+        status->clear();
+        validate();
+    });
 }
 
 } // namespace
@@ -412,7 +528,28 @@ void ConversationActionsMenu::populate(
         });
     }
 
-    if (teamChannel) {
+    const bool group = original && original->type == BackendChannel::groupChannel;
+    if (group) {
+        auto* separator = menu.addSeparator();
+        auto* convert = addAction(menu, QStringLiteral("convertGroupMessageAction"),
+            QObject::tr("Convert to private channel…"), QStringLiteral(":/icons/edit"),
+            [backendPtr, activeChannel, resolveTeam, parentGuard] {
+            const BackendChannel* channel = activeChannel();
+            if (channel && channel->type == BackendChannel::groupChannel)
+                openGroupConversionDialog(*backendPtr, channel->id, resolveTeam(), parentGuard);
+        });
+        const auto update = [activeChannel, separator, convert] {
+            const auto* channel = activeChannel();
+            const bool visible = channel && channel->type == BackendChannel::groupChannel;
+            separator->setVisible(visible);
+            convert->setVisible(visible);
+        };
+        QObject::connect(&menu, &QMenu::aboutToShow, &menu, update);
+        update();
+    }
+
+    if (teamChannel || group) {
+        const int firstTeamAction = menu.actions().size();
         menu.addSeparator();
         addAction(menu, QStringLiteral("viewChannelDetailsAction"),
                   QObject::tr("View channel details"), QStringLiteral(":/icons/menu-info"),
@@ -480,6 +617,18 @@ void ConversationActionsMenu::populate(
                 backendPtr->leaveChannel(*channel);
             }
         });
+        // Header menus persist after a GM is converted; sidebar menus are
+        // recreated. Keep the same factory and refresh action visibility.
+        const auto teamActions = menu.actions().mid(firstTeamAction);
+        const auto update = [activeChannel, teamActions] {
+            const BackendChannel* channel = activeChannel();
+            const bool visible = channel && (channel->type == BackendChannel::publicChannel
+                || channel->type == BackendChannel::privateChannel);
+            for (auto* action : teamActions)
+                action->setVisible(visible);
+        };
+        QObject::connect(&menu, &QMenu::aboutToShow, &menu, update);
+        update();
     }
 }
 
