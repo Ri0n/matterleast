@@ -49,6 +49,7 @@ QVariant AccountListModel::data(const QModelIndex& index, int role) const
     case StatusRole: return statusLabel(entry.state);
     case ConnectionStateRole: return static_cast<int>(entry.state);
     case SelectedRole: return entry.id == _selectedAccountId;
+    case ServerVersionRole: return entry.serverVersion;
     default: return {};
     }
 }
@@ -61,7 +62,8 @@ QHash<int, QByteArray> AccountListModel::roleNames() const
         {ServerRole, QByteArrayLiteral("server")},
         {StatusRole, QByteArrayLiteral("status")},
         {ConnectionStateRole, QByteArrayLiteral("connectionState")},
-        {SelectedRole, QByteArrayLiteral("selected")}
+        {SelectedRole, QByteArrayLiteral("selected")},
+        {ServerVersionRole, QByteArrayLiteral("serverVersion")}
     };
 }
 
@@ -127,6 +129,10 @@ void AccountListModel::setEntries(const QVector<Entry>& entries,
             current.state = next.state;
             roles.append(StatusRole);
             roles.append(ConnectionStateRole);
+        }
+        if (current.serverVersion != next.serverVersion) {
+            current.serverVersion = next.serverVersion;
+            roles.append(ServerVersionRole);
         }
         if (!roles.isEmpty()) {
             roles.append(Qt::DisplayRole);

@@ -48,6 +48,9 @@ not by the channel's `c:<channelId>` identity. That separate row does not
 replace the ordinary unread channel: it stays visible while `SidebarService`
 still reports unread posts, even if the mention is opened or acknowledged.
 Neither tab computes its own unread state.
+The Unread tab label counts the unread entries in this deduplicated projection,
+across the visible accounts and enabled source checkboxes, before the temporary
+text filter. Read Following and retained read rows are excluded; zero is omitted.
 A selected Following conversation may remain momentarily after being read
 for click stability, but it belongs to the **read** group, never to the
 unread Following or Channels groups. A read Channels/Muted-only row cannot

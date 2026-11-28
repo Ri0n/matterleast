@@ -337,6 +337,7 @@ public:
     const EmojiRegistry& emojiRegistry() const { return _emojiRegistry; }
     const QString& serverDomain() const { return loginData.domain; }
     QString callsConnectionId() const { return webSocketConnector.connectionId(); }
+    QString serverVersion() const { return webSocketConnector.serverVersion(); }
 
     // Authenticated Calls plugin HTTP requests use the existing backend
     // session, cookies, transport, and logout cancellation. No credentials
@@ -421,6 +422,7 @@ signals:
                             const QJsonObject& broadcast);
     void callPostEnded(const QString& channelId, const QString& postId);
     void onWebSocketConnectionStateChanged(WebSocketConnector::ConnectionState state);
+    void serverVersionChanged();
     void typingChanged(const QString& channelId, const QString& parentId);
 private:
     void loginSuccess (const QJsonDocument& data, const QNetworkReply& reply, std::function<void(const QString&)> callback);

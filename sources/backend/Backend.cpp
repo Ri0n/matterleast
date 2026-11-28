@@ -377,6 +377,8 @@ Backend::Backend(QObject *parent)
 	connect (&webSocketConnector, &WebSocketConnector::onDisconnect, this, &Backend::onWebSocketDisconnect);
     connect(&webSocketConnector, &WebSocketConnector::connectionStateChanged,
             this, &Backend::onWebSocketConnectionStateChanged);
+    connect(&webSocketConnector, &WebSocketConnector::serverVersionChanged,
+            this, &Backend::serverVersionChanged);
     connect(&webSocketConnector, &WebSocketConnector::connectionStateChanged,
             this, [this](WebSocketConnector::ConnectionState state) {
         if (state != WebSocketConnector::ConnectionState::Connected) {
