@@ -56,12 +56,10 @@ void SidebarService::admitStoredConversation(BackendChannel& channel)
                 break;
             }
         }
-        if (!present) {
-            auto* direct = team->categoryByType(QStringLiteral("direct_messages"));
-            if (!direct) continue;
-            promoteSidebarConversation(direct->channelIds, channel.id);
-        }
-        changedTeams.append(team.key());
+        if (present) continue;
+        auto* direct = team->categoryByType(QStringLiteral("direct_messages"));
+        if (direct && promoteSidebarConversation(direct->channelIds, channel.id))
+            changedTeams.append(team.key());
     }
     for (const auto& teamId : changedTeams)
         emit categoriesChanged(teamId);

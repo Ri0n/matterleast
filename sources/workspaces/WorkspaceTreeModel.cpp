@@ -20,7 +20,8 @@ WorkspaceTreeModel::WorkspaceTreeModel(const WorkspaceLayout& layout,
             [this](const QModelIndex& first, const QModelIndex& last,
                    const QVector<int>& roles) {
         if (!roles.isEmpty() && !roles.contains(AccountListModel::StatusRole)
-            && !roles.contains(AccountListModel::ConnectionStateRole))
+            && !roles.contains(AccountListModel::ConnectionStateRole)
+            && !roles.contains(AccountListModel::ServerVersionRole))
             return;
         for (int row = first.row(); row <= last.row(); ++row)
             notifyAccountStatus(_accounts.idAt(row));
@@ -310,6 +311,11 @@ QVariant WorkspaceTreeModel::data(const QModelIndex& idx, int role) const
         QStringList lines;
         lines << account->name << status << account->serverBaseUrl
               << account->loginName;
+        const int row = _accounts.rowForId(node->accountId);
+        const QString version = _accounts.data(_accounts.index(row, 0),
+            AccountListModel::ServerVersionRole).toString();
+        if (!version.isEmpty())
+            lines << tr("Server version: %1").arg(version);
         if (!account->serverUserId.isEmpty())
             lines << tr("Server user ID: %1").arg(account->serverUserId);
         return lines.join(QLatin1Char('\n'));

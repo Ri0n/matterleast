@@ -230,6 +230,48 @@ private slots:
                  size_t(1));
     }
 
+    void storedConversationAdmissionOnlyNotifiesActualCategoryChanges()
+    {
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser({{"id", "self"}, {"username", "self"}}, true);
+        auto* group = storage.addOwnChannel({
+            {"id", "group"}, {"type", "G"}, {"display_name", "Group"}});
+        QVERIFY(group);
+        auto& sidebar = SidebarService::instance(backend);
+        for (const QString& teamId : {QStringLiteral("team-a"), QStringLiteral("team-b")}) {
+            SidebarCategory direct;
+            direct.id = QStringLiteral("direct");
+            direct.teamId = teamId;
+            direct.type = QStringLiteral("direct_messages");
+            direct.channelIds = QStringList {QStringLiteral("other")};
+            SidebarTeamState state;
+            state.categories.insert(direct.id, direct);
+            state.order << direct.id;
+            if (teamId == QStringLiteral("team-a")) {
+                SidebarCategory custom;
+                custom.id = QStringLiteral("custom");
+                custom.teamId = teamId;
+                custom.type = QStringLiteral("custom");
+                custom.channelIds = QStringList {QStringLiteral("before"), group->id};
+                state.categories.insert(custom.id, custom);
+                state.order << custom.id;
+            }
+            sidebar.applyLocalTeamState(teamId, state);
+        }
+
+        QSignalSpy changed(&sidebar, &SidebarService::categoriesChanged);
+        sidebar.admitStoredConversation(*group);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(changed.first().at(0).toString(), QStringLiteral("team-b"));
+        QCOMPARE(sidebar.teamState("team-a")->category("custom")->channelIds,
+                 (QStringList {QStringLiteral("before"), group->id}));
+        QCOMPARE(sidebar.teamState("team-b")->category("direct")->channelIds,
+                 (QStringList {group->id, QStringLiteral("other")}));
+        sidebar.admitStoredConversation(*group);
+        QCOMPARE(changed.count(), 1);
+    }
+
     void sharedVisibilityUsesAccountCatalogAndCapsReadHistory()
     {
         Backend backend;

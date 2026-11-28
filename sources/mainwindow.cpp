@@ -759,6 +759,16 @@ void MainWindow::setupChannelTabs()
                 attentionList->viewport()->mapToGlobal(pos));
         }
 	});
+    connect(recentChannels, &ChannelQuickList::unreadCountChanged, this,
+            [this](uint32_t count) {
+        const int index = channelTabs->indexOf(_unreadPage);
+        if (index < 0) return;
+        channelTabs->setTabText(index, count == 0 ? tr("Unread")
+            : tr("Unread") + QStringLiteral(" (%1)").arg(count));
+        channelTabs->setTabToolTip(index, count == 0
+            ? tr("Unread channels and followed conversations")
+            : tr("%1 unread conversation(s) or thread(s)").arg(count));
+    });
 	connect(attentionList, &AttentionList::attentionCountChanged, this,
 	        [this](uint32_t count) {
 		setNotificationsCountVisualization(count);

@@ -22,6 +22,7 @@ public:
         QString displayName;
         QString server;
         AccountConnectionState state = AccountConnectionState::Disconnected;
+        QString serverVersion = {};
     };
 
     enum Role {
@@ -30,7 +31,8 @@ public:
         ServerRole,
         StatusRole,
         ConnectionStateRole,
-        SelectedRole
+        SelectedRole,
+        ServerVersionRole
     };
     Q_ENUM(Role)
 
