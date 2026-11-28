@@ -333,13 +333,15 @@ void ChannelItemDelegate::paint(QPainter* painter,
         && index.data(SidebarItem::KindRole).toInt() == SidebarItem::Channel
         && !index.data(SidebarItem::UnreadRole).toBool()
         && !index.data(SidebarItem::MentionedRole).toBool()) {
-        // The palette already defines the muted endpoint for this theme.
-        // Leave selected, unread and mentioned conversation names at full contrast.
+        // Keep ordinary read names closer to the normal palette text than
+        // to muted text. Unread names also retain their existing bold font.
+        constexpr qreal mutedWeight = 0.30;
+        constexpr qreal normalWeight = 1.0 - mutedWeight;
         textColor = QColor::fromRgbF(
-            (normalText.redF() + mutedText.redF()) / 2.0,
-            (normalText.greenF() + mutedText.greenF()) / 2.0,
-            (normalText.blueF() + mutedText.blueF()) / 2.0,
-            (normalText.alphaF() + mutedText.alphaF()) / 2.0);
+            normalText.redF() * normalWeight + mutedText.redF() * mutedWeight,
+            normalText.greenF() * normalWeight + mutedText.greenF() * mutedWeight,
+            normalText.blueF() * normalWeight + mutedText.blueF() * mutedWeight,
+            normalText.alphaF() * normalWeight + mutedText.alphaF() * mutedWeight);
     }
     painter->setPen(textColor);
 
