@@ -19,7 +19,13 @@ The core implements adapters between these stable interfaces and the current int
 
 The plugin API is an installable CMake package, not a requirement to build inside the MatterLeast source tree. Its API version is independent from the MatterLeast application version.
 
-After installing the `Development` component, an external plugin project uses:
+Install `matterleast-dev` (DEB), `matterleast-devel` (RPM), or the `Development`
+component from a source build. The native SDK is header-only and can be installed
+without the application; running a plugin still requires a compatible MatterLeast,
+Qt major/minor and compiler ABI. The SDK depends on the matching Qt base development
+package, not on Calls or MatterLeast core.
+
+An external plugin project uses:
 
 ```cmake
 find_package(MatterLeastPluginApi 1.0 CONFIG REQUIRED)
@@ -38,7 +44,9 @@ Installed public headers live under `matterleast/plugin/`, for example:
 #include <matterleast/plugin/ConversationMenuInterface.h>
 ```
 
-The installed package exports only the stable API target and its Qt Core dependency. It exports no MatterLeast core target or include directory.
+The installed package exports only the stable API target and its Qt Core dependency.
+`MatterLeastPluginApi_PLUGIN_INSTALL_DIR` gives the relative GNUInstallDirs plugin
+installation location; use the same installation prefix as the application. It exports no MatterLeast core target or include directory.
 
 CI contains a separate external smoke project that first installs the SDK to a clean prefix and then performs a new CMake configure/build using only `find_package(MatterLeastPluginApi ...)`. This guards against accidentally making plugin builds depend on the MatterLeast source tree.
 

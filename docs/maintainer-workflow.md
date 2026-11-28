@@ -22,7 +22,9 @@ Commit/PR CI is primarily a compatibility gate, with these build/test targets:
 
 Keep full multiplatform release packaging out of commit CI. The Debian 13
 test-package job is the narrow exception because it catches package metadata
-and split-symbol regressions before a release. Full release packaging lives
+and split-symbol regressions before a release. Changes to SDK packaging also run
+the Fedora RPM job on PRs, without invoking unrelated release builds.
+Full release packaging lives
 in `.github/workflows/packages.yml`, invoked manually or by the tag workflow.
 
 The packaging workflow owns release artifacts for Ubuntu 22.04, Ubuntu 24.04, Ubuntu 26.04, Fedora 44, a portable Linux AppImage and Windows. Ubuntu 24.04 is packaged only with Qt 6. The release workflow must verify the complete expected artifact set before publishing a GitHub release.
@@ -34,7 +36,10 @@ Every Debian-family release build additionally produces a matching
 `matterleast-dbgsym` package from `RelWithDebInfo` binaries; runtime
 ELFs retain `.gnu_debuglink` while symbol files live under
 `/usr/lib/debug`. Release asset verification requires all matching
-symbol packages. See [Debian debug symbols](debian-debug-symbols.md).
+symbol packages. Native DEB/RPM runtime packages exclude the public plugin SDK;
+separate `matterleast-dev` / `matterleast-devel` assets contain only the SDK.
+Package jobs inspect the manifests and compile the external smoke plugin against
+an extracted SDK package, not a build-tree export. See [Debian debug symbols](debian-debug-symbols.md).
  The AppImage has a different role: it bundles the newest Qt version that is still supported on the AppImage build baseline. It is built and smoke-tested on Ubuntu 24.04/XCB, currently with Qt 6.11.2, so users affected by old distribution Qt/XInput bugs have a self-contained alternative without changing their system Qt. Keep the AppImage build host at Ubuntu 24.04 while that is the oldest supported AppImage target; AppImage does not make glibc backward-compatible.
 
 The AppImage toolchain is downloaded by immutable GitHub release-asset IDs and checked against recorded SHA-256 digests. When updating linuxdeploy or linuxdeploy-plugin-qt, update the asset ID and digest together. The Qt deployment must include the XCB and Wayland platform plugins, SQLite driver and SVG image plugin. Qt 6.11 consolidated the Wayland QPA entry point into `libqwayland.so`; do not use the older `libqwayland-egl.so` / `libqwayland-generic.so` names from older linuxdeploy-plugin-qt documentation. MatterLeast only needs the SQLite Qt SQL driver; prune the other `libqsql*.so` plugins from the Qt deployment source before running linuxdeploy, because official Qt binaries also contain drivers whose external vendor libraries (for example Mimer SQL) are not part of the AppImage and must not become accidental runtime dependencies. The Ubuntu 24.04 smoke test intentionally forces XCB because the package also serves as the workaround path for old XInput behavior.

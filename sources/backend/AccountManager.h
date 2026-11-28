@@ -13,6 +13,13 @@
 #include "workspaces/WorkspaceTreeModel.h"
 #include "workspaces/WorkspaceLayout.h"
 
+// Qt 6 MOC registers the pointer types used by the account lifecycle signals.
+// Their definitions must be visible before the first metatype completeness check.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+Q_MOC_INCLUDE("backend/Account.h")
+Q_MOC_INCLUDE("backend/Backend.h")
+#endif
+
 namespace Mattermost {
 class Account;
 class Backend;

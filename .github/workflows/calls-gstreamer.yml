@@ -104,19 +104,24 @@ jobs:
             -D CPACK_DEBIAN_PACKAGE_DEBUG=ON
           shopt -s nullglob
           debs=(package/*.deb)
-          test "${#debs[@]}" -eq 2
+          test "${#debs[@]}" -eq 3
           runtime=''
           calls=''
+          sdk=''
           for deb in "${debs[@]}"; do
             name=$(dpkg-deb -f "$deb" Package)
             case "$name" in
               matterleast) runtime="$deb" ;;
+              matterleast-dev) sdk="$deb" ;;
               matterleast-calls-gstreamer) calls="$deb" ;;
               *) echo "Unexpected DEB: $name"; exit 1 ;;
             esac
           done
           test -n "$runtime"
           test -n "$calls"
+          test -n "$sdk"
+          bash scripts/check-plugin-sdk-package.sh deb "$sdk" build
+          bash scripts/check-linux-package-layout.sh deb "$runtime" build
           version=$(dpkg-deb -f "$runtime" Version)
           test "$(dpkg-deb -f "$calls" Version)" = "$version"
           core_depends=$(dpkg-deb -f "$runtime" Depends)
@@ -157,14 +162,17 @@ jobs:
           set -euo pipefail
           runtime=(package/matterleast_*_amd64.deb)
           calls=(package/matterleast-calls-gstreamer_*_amd64.deb)
+          sdk=(package/matterleast-dev_*_amd64.deb)
           test "${#runtime[@]}" -eq 1
           test "${#calls[@]}" -eq 1
+          test "${#sdk[@]}" -eq 1
           arch="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
           plugin_dir="/usr/lib/$arch/matterleast/plugins"
 
-          # Installing the base package must not install the optional Calls
-          # module, and its exported plugin SDK must remain available.
+          # Runtime alone must install neither the optional Calls module nor SDK.
           sudo apt-get install -y --no-install-recommends "./${runtime[0]}"
+          test ! -e /usr/include/matterleast/plugin/CallsHostInterface.h
+          sudo apt-get install -y --no-install-recommends "./${sdk[0]}"
           test -f /usr/include/matterleast/plugin/CallsHostInterface.h
           test -f "$plugin_dir/seasonal-snow.so"
           test ! -e "$plugin_dir/calls-gstreamer.so"
