@@ -55,6 +55,7 @@ public:
 	void doHandshake ();
     ConnectionState connectionState() const;
     QString connectionId() const;
+    QString serverVersion() const;
     void reconnectNow();
     void probeNow();
     // Official desktop presence request; manual is always false for activity.
@@ -69,8 +70,10 @@ signals:
 	void onConnect (bool isReconnect, bool needsHttpResync);
 	void onDisconnect ();
     void connectionStateChanged(ConnectionState state);
+    void serverVersionChanged();
 private:
     void setConnectionState(ConnectionState state);
+    void setServerVersion(const QString& version);
 	void onNewPacket (const QString& string);
 	void notifyReadyIfVerified ();
 	void openSocket ();

@@ -189,6 +189,7 @@ private:
     NavigationTabsModel tabModel;
     int activeTabIndex = -1;
     bool switchingTabs = false;
+    bool refreshingAttachedDestination = false;
     bool replayingHistory = false;
     // An asynchronous Back/Forward thread restore may first activate its
     // parent conversation. Suppress that intermediate channel history entry.

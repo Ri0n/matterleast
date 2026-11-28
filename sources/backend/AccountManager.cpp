@@ -769,6 +769,11 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     // and clearing later would silently erase its newly scheduled retry.
     cancelRetry(item->id());
     const QString registeredId = item->id();
+    connect(backend, &Backend::serverVersionChanged, this, [this, registeredId, backend] {
+        const Account* current = account(registeredId);
+        if (current && current->backend() == backend)
+            rebuildModel();
+    });
     connect(backend, &Backend::onWebSocketConnectionStateChanged, this,
             [this, registeredId, backend](WebSocketConnector::ConnectionState state) {
         Account* item = account(registeredId);
@@ -850,7 +855,8 @@ void AccountManager::rebuildModel()
         if (!record.hasConnectionIdentity())
             state = AccountConnectionState::SetupRequired;
         entries.append({record.id, record.name,
-                        QUrl(record.serverBaseUrl).host(), state});
+                        QUrl(record.serverBaseUrl).host(), state,
+                        item && item->backend() ? item->backend()->serverVersion() : QString()});
     }
     _listModel.setEntries(entries, _selectedId);
 }

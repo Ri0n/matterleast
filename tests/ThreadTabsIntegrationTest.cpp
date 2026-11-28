@@ -2641,6 +2641,56 @@ private slots:
         }
     }
 
+    void restoringStoredGroupConversationDoesNotReenterOnCategoryAdmission()
+    {
+        Server server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Account account(QStringLiteral("a"), nullptr);
+        Backend backend(&account);
+        backend.networkSession().setHost(serverBaseUrl(server));
+        auto& storage = backend.getStorage();
+        storage.addUser({{"id", "user"}, {"username", "tester"}}, true);
+        QVERIFY(storage.addTeam({{"id", "team"}, {"display_name", "Team"}}));
+
+        QSystemTrayIcon tray;
+        ViewNavigationSession view(QStringLiteral("retained"));
+        view.setAllowedAccounts({account.id()});
+        ViewNavigationSession::Location location;
+        location.accountId = account.id();
+        location.channelId = QStringLiteral("channel");
+        QCOMPARE(view.openTab(location, QStringLiteral("Test chat")), 0);
+        MainWindow window(nullptr, tray);
+        window.setVisibleAccounts({account.id()}, {}, QStringLiteral("recent"));
+        window.bindViewNavigation(&view);
+        QVERIFY(window.attachNavigationBackend(backend));
+        window.selectPresentationBackend(&backend);
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        QVERIFY(tree);
+        QVERIFY(!tree->getCurrentPage());
+
+        auto* group = storage.addOwnChannel({
+            {"id", "channel"}, {"type", "G"}, {"display_name", "Test chat"}});
+        QVERIFY(group);
+        auto& sidebar = SidebarService::instance(backend);
+        SidebarCategory direct;
+        direct.id = QStringLiteral("dm");
+        direct.teamId = QStringLiteral("team");
+        direct.type = QStringLiteral("direct_messages");
+        SidebarTeamState state;
+        state.categories.insert(direct.id, direct);
+        state.order << direct.id;
+        // The retained destination is known to Storage but is not in the
+        // category yet. Restoring it emits another categoriesChanged inline.
+        sidebar.applyLocalTeamState(direct.teamId, state);
+        QTRY_VERIFY(tree->getCurrentPage());
+        QCOMPARE(&tree->getCurrentPage()->getChannel(), group);
+        QCOMPARE(&tree->getCurrentPage()->getBackend(), &backend);
+        QCOMPARE(view.tabs().count(), 1);
+        QCOMPARE(view.activeTab(), 0);
+        QCOMPARE(sidebar.teamState("team")->category("dm")->channelIds,
+                 (QStringList {group->id}));
+    }
+
     void permanentWindowSurvivesAccountDetachAndViewSwitch()
     {
         Server serverA;

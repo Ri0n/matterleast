@@ -221,6 +221,7 @@ struct WebSocketConnector::Private {
 	QTimer heartbeatReplyTimer;
 	QTimer connectionAttemptTimer;
 	QString connectionId;
+    QString serverVersion;
 	quint64 configGeneration = 0;
 	int responseSequence = 1;
 	int serverSequence = 0;
@@ -377,6 +378,18 @@ QString WebSocketConnector::connectionId() const
     return d->connectionId;
 }
 
+QString WebSocketConnector::serverVersion() const
+{
+    return d->serverVersion;
+}
+
+void WebSocketConnector::setServerVersion(const QString& version)
+{
+    if (d->serverVersion == version) return;
+    d->serverVersion = version;
+    emit serverVersionChanged();
+}
+
 void WebSocketConnector::reconnectNow()
 {
     if (d->token.isEmpty() || d->suppressReconnect
@@ -422,6 +435,7 @@ void WebSocketConnector::probeNow()
 
 void WebSocketConnector::open (const QString& urlString, const QString& authToken)
 {
+	setServerVersion(QString());
 	d->apiBaseUrl = QUrl(urlString);
 	d->token = authToken;
 	d->connectionId.clear ();
@@ -718,6 +732,7 @@ void WebSocketConnector::sendPing ()
 
 void WebSocketConnector::reset ()
 {
+    setServerVersion(QString());
 	++d->configGeneration;
 	d->connectionAttemptTimer.stop();
 	stopHeartbeat ();
@@ -786,8 +801,8 @@ void WebSocketConnector::onNewPacket (const QString& string)
 	if (eventName == QStringLiteral("hello")) {
 		d->helloReceived = true;
 		const QString oldConnectionId = d->connectionId;
-		const QString newConnectionId = jsonObject.value(QStringLiteral("data"))
-			.toObject().value(QStringLiteral("connection_id")).toString();
+		const QJsonObject hello = jsonObject.value(QStringLiteral("data")).toObject();
+		const QString newConnectionId = hello.value(QStringLiteral("connection_id")).toString();
 
 		if (d->hasReconnect) {
 			// A resumed Mattermost stream keeps the same connection_id. Only a
@@ -851,6 +866,9 @@ void WebSocketConnector::onNewPacket (const QString& string)
         // including cookie authentication at the HTTP upgrade.
         d->authenticated = true;
     }
+    if (eventName == QStringLiteral("hello"))
+        setServerVersion(jsonObject.value(QStringLiteral("data")).toObject()
+                             .value(QStringLiteral("server_version")).toString());
     notifyReadyIfVerified();
     if (!d->authenticated && eventName != QLatin1String("hello")) {
         d->resumeFailed = true;

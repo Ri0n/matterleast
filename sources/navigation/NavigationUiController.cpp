@@ -477,6 +477,12 @@ void NavigationUiController::cancelOtherNavigationRequests(const Backend* source
 void NavigationUiController::refreshAttachedDestination(Backend& source)
 {
     if (!hasBoundView() || !canPresentBackend(source)) return;
+    // Channel admission emits categoriesChanged synchronously, before the
+    // outer activation has installed its ChatArea. Do not restore the same
+    // destination or deferred thread surfaces from that nested notification.
+    if (switchingTabs || replayingHistory || refreshingAttachedDestination)
+        return;
+    const QScopedValueRollback<bool> refreshing(refreshingAttachedDestination, true);
     refreshAllTabUnreadVisuals(accountIdForBackend(source));
     restoreDeferredThreadSurfaces(source);
     if (activeArea || currentLocation.accountId != accountIdForBackend(source))

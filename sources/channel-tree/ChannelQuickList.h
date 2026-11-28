@@ -44,6 +44,7 @@ public:
 
 signals:
     void channelSelected(const QString& channelId, Backend* source);
+    void unreadCountChanged(uint32_t count);
     void channelContextMenuRequested(const QString& channelId, const QPoint& globalPos, Backend* source);
 
 protected:
@@ -59,6 +60,7 @@ private:
     void updateDirectUser(const QString& accountId, const BackendUser& user);
     SidebarQueueSources sources_;
     bool refreshing_ = false;
+    uint32_t lastUnreadCount_ = 0;
     UnreadViewFilters unreadFilters_;
     QMap<QString, QTreeWidgetItem*> channelItems_;
 

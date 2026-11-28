@@ -441,7 +441,6 @@ void ChannelQuickList::refresh()
 {
     if (refreshing_) return;
     QScopedValueRollback<bool> updating(refreshing_, true);
-    QSignalBlocker blockSelection(this);
     struct Candidate {
         QString accountId;
         FollowingModel::Entry entry;
@@ -574,12 +573,21 @@ void ChannelQuickList::refresh()
         ? currentItem()->data(0, FollowingKeyRole).toString() : QString();
 
     QSet<QString> desired;
+    uint32_t unreadCount = 0;
     for (const auto& candidate : std::as_const(candidates)) {
         auto* owner = sources_.backend(candidate.accountId);
         if (owner && (candidate.entry.isThread()
-            || owner->getStorage().getChannelById(candidate.entry.channelId)))
+            || owner->getStorage().getChannelById(candidate.entry.channelId))) {
             desired.insert(candidate.key);
+            if (candidate.entry.requiresAttention())
+                ++unreadCount;
+        }
     }
+    if (lastUnreadCount_ != unreadCount) {
+        lastUnreadCount_ = unreadCount;
+        emit unreadCountChanged(unreadCount);
+    }
+    QSignalBlocker blockSelection(this);
     channelItems_.clear();
     SidebarQueueRows rows(*this, desired);
     QTreeWidgetItem* itemToRestore = nullptr;
