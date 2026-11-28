@@ -34,12 +34,13 @@ case "$format" in
     else
       stage=$artifact
     fi
-    for relative in "$plugin" "$sdk"; do
-      if [[ ! -f "$stage/$relative" ]]; then
-        echo "Missing Linux package entry: /$relative" >&2
-        exit 1
-      fi
-    done
+    test -f "$stage/$plugin"
+    if [[ "$format" = deb ]]; then
+      test ! -e "$stage/$sdk"
+      test ! -e "$stage/usr/include/matterleast/plugin"
+    else
+      test -f "$stage/$sdk"
+    fi
     if [[ -d "$stage/usr/bin/plugins" || -d "$stage/usr/lib/cmake/MatterLeastPluginApi" ]]; then
       echo "Legacy bin/plugins or non-multiarch CMake SDK directory is still packaged" >&2
       exit 1
@@ -52,12 +53,11 @@ case "$format" in
       exit 1
     fi
     files=$(rpm -qpl "$artifact")
-    for relative in "$plugin" "$sdk"; do
-      if ! grep -Fxq "/$relative" <<< "$files"; then
-        echo "Missing RPM entry: /$relative" >&2
-        exit 1
-      fi
-    done
+    grep -Fxq "/$plugin" <<< "$files"
+    if grep -Eq '/cmake/MatterLeastPluginApi/|/include/matterleast/plugin/' <<< "$files"; then
+      echo "Plugin SDK leaked into runtime RPM" >&2
+      exit 1
+    fi
     if grep -Eq '^/usr/bin/plugins/|^/usr/lib/cmake/MatterLeastPluginApi/' <<< "$files"; then
       echo "Legacy RPM plugin/SDK location is still packaged" >&2
       exit 1
@@ -69,4 +69,4 @@ case "$format" in
     ;;
 esac
 
-echo "Verified $format: /$plugin and /$sdk"
+echo "Verified $format runtime layout: /$plugin"

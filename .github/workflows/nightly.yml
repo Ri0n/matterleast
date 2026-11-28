@@ -78,7 +78,7 @@ jobs:
           pattern: matterleast-*
           path: release-assets
           merge-multiple: true
-      - name: Validate and rename the twelve packages
+      - name: Validate and rename the complete package set
         shell: bash
         env:
           VERSION: ${{ needs.identity.outputs.version }}
@@ -86,11 +86,11 @@ jobs:
         run: |
           set -euo pipefail
           expected=(
-            ubuntu-22.04-amd64.deb ubuntu-22.04-amd64-dbgsym.deb
-            ubuntu-24.04-amd64.deb ubuntu-24.04-amd64-dbgsym.deb
-            ubuntu-26.04-amd64.deb ubuntu-26.04-amd64-dbgsym.deb
-            debian-13-amd64.deb debian-13-amd64-dbgsym.deb
-            fedora-44-x86_64.rpm linux-x86_64.AppImage
+            ubuntu-22.04-amd64.deb ubuntu-22.04-amd64-dbgsym.deb ubuntu-22.04-amd64-dev.deb
+            ubuntu-24.04-amd64.deb ubuntu-24.04-amd64-dbgsym.deb ubuntu-24.04-amd64-dev.deb
+            ubuntu-26.04-amd64.deb ubuntu-26.04-amd64-dbgsym.deb ubuntu-26.04-amd64-dev.deb
+            debian-13-amd64.deb debian-13-amd64-dbgsym.deb debian-13-amd64-dev.deb
+            fedora-44-x86_64.rpm fedora-44-x86_64-devel.rpm linux-x86_64.AppImage
             windows-x64-installer.exe windows-x64-portable.zip
           )
           mkdir -p publish-assets
@@ -99,8 +99,8 @@ jobs:
             test -s "$source" || { echo "::error::Missing or empty $source"; exit 1; }
             cp -- "$source" "publish-assets/matterleast-${VERSION}-${BUILD_ID}-${suffix}"
           done
-          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 12
-          test "$(find publish-assets -maxdepth 1 -type f | wc -l)" -eq 12
+          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq "${#expected[@]}"
+          test "$(find publish-assets -maxdepth 1 -type f | wc -l)" -eq "${#expected[@]}"
 
       - name: Read previous pointer and reject stale publications
         shell: bash
@@ -154,7 +154,7 @@ jobs:
           set -euo pipefail
           gh release upload updates-nightly publish-assets/* --repo "$GITHUB_REPOSITORY"
 
-      - name: Verify all twelve uploaded assets before promotion
+      - name: Verify all seventeen uploaded assets before promotion
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -170,7 +170,7 @@ jobs:
           assert release["tag_name"] == "updates-nightly" and release["prerelease"] and not release["draft"]
           assets = release["assets"]
           files = list(Path("publish-assets").iterdir())
-          assert len(files) == 12
+          assert len(files) == 17
           for path in files:
               matches = [a for a in assets if a["name"] == path.name]
               assert len(matches) == 1, f"Release missing {path.name}"
@@ -181,7 +181,7 @@ jobs:
               assert remote["browser_download_url"] == (
                   f"https://github.com/Ri0n/matterleast/releases/download/updates-nightly/{path.name}"
               )
-          print("Verified all twelve GitHub release asset digests and sizes")
+          print("Verified all seventeen GitHub release asset digests and sizes")
           PY
 
       - name: Sign nightly update pointer if configured

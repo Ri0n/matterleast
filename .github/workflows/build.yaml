@@ -88,8 +88,13 @@ jobs:
           ctest --test-dir build --output-on-failure
           cpack --config build/CPackConfig.cmake -G DEB -B package
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
-          deb=$(find package -maxdepth 1 -name '*.deb' -print -quit)
-          test -n "$deb"
+          debs=(package/matterleast_*_*.deb)
+          sdks=(package/matterleast-dev_*_*.deb)
+          test "${#debs[@]}" -eq 1 && test -f "${debs[0]}"
+          test "${#sdks[@]}" -eq 1 && test -f "${sdks[0]}"
+          deb=${debs[0]}
+          sdk=${sdks[0]}
+          bash scripts/check-plugin-sdk-package.sh deb "$sdk" build
           bash scripts/check-linux-package-layout.sh deb "$deb" build
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
           depends=$(dpkg-deb -f "$deb" Depends)
@@ -100,6 +105,7 @@ jobs:
           runtime="package/matterleast-${version}-debian-13-amd64.deb"
           symbols="package/matterleast-${version}-debian-13-amd64-dbgsym.deb"
           mv "$deb" "$runtime"
+          mv "$sdk" "package/matterleast-${version}-debian-13-amd64-dev.deb"
           bash scripts/package-deb-debug.sh "$runtime" "$symbols"
           test "$(dpkg-deb -f "$symbols" Package)" = matterleast-dbgsym
           test "$(dpkg-deb -f "$symbols" Version)" = "$version"
@@ -113,6 +119,7 @@ jobs:
           path: |
             package/matterleast-*-debian-13-amd64.deb
             package/matterleast-*-debian-13-amd64-dbgsym.deb
+            package/matterleast-*-debian-13-amd64-dev.deb
           if-no-files-found: error
 
   ubuntu-2404:

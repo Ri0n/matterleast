@@ -6,4 +6,6 @@ find_dependency(Qt@QT_VERSION_MAJOR@ REQUIRED COMPONENTS Core)
 include("${CMAKE_CURRENT_LIST_DIR}/MatterLeastPluginApiTargets.cmake")
 
 set(MatterLeastPluginApi_API_VERSION "@MATTERLEAST_PLUGIN_API_VERSION@")
+# Relative to the plugin project installation prefix (normally /usr on Linux).
+set(MatterLeastPluginApi_PLUGIN_INSTALL_DIR "@MATTERLEAST_NATIVE_PLUGIN_INSTALL_DIR@")
 check_required_components(MatterLeastPluginApi)

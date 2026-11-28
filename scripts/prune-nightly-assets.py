@@ -16,11 +16,11 @@ ASSET = re.compile(
     r"matterleast-\d+\.\d+(?:\.\d+)?-(nightly-\d{8}-\d{6}-[0-9a-f]{7,40})-(.+)\Z"
 )
 SUFFIXES = frozenset((
-    "ubuntu-22.04-amd64.deb", "ubuntu-22.04-amd64-dbgsym.deb",
-    "ubuntu-24.04-amd64.deb", "ubuntu-24.04-amd64-dbgsym.deb",
-    "ubuntu-26.04-amd64.deb", "ubuntu-26.04-amd64-dbgsym.deb",
-    "debian-13-amd64.deb", "debian-13-amd64-dbgsym.deb",
-    "fedora-44-x86_64.rpm", "linux-x86_64.AppImage",
+    "ubuntu-22.04-amd64.deb", "ubuntu-22.04-amd64-dbgsym.deb", "ubuntu-22.04-amd64-dev.deb",
+    "ubuntu-24.04-amd64.deb", "ubuntu-24.04-amd64-dbgsym.deb", "ubuntu-24.04-amd64-dev.deb",
+    "ubuntu-26.04-amd64.deb", "ubuntu-26.04-amd64-dbgsym.deb", "ubuntu-26.04-amd64-dev.deb",
+    "debian-13-amd64.deb", "debian-13-amd64-dbgsym.deb", "debian-13-amd64-dev.deb",
+    "fedora-44-x86_64.rpm", "fedora-44-x86_64-devel.rpm", "linux-x86_64.AppImage",
     "windows-x64-installer.exe", "windows-x64-portable.zip",
 ))
 
